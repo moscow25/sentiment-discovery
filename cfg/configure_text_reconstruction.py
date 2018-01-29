@@ -72,7 +72,8 @@ def make_saver(cfg, opt):
 			cfg.histories.append(history)
 		else:
 			cfg.histories[-1] = history
-		if not opt.distributed or opt.rank == 0:
+		save_path = os.path.join(cfg.logger.get_log_dir(opt.model_dir), basename)
+		if not cfg.distributed or opt.rank == 0:
 			checkpoint = {
 						'state_dict': cfg.model.state_dict(keep_vars=False),
 						'opt': cfg.opt,
@@ -81,8 +82,13 @@ def make_saver(cfg, opt):
 					}
 			if opt.save_optim:
 				checkpoint['optim'] = cfg.optim
-			save(cfg.model, os.path.join(cfg.logger.get_log_dir(opt.model_dir), basename), save_dict=checkpoint)
+			save(cfg.model, save_path, save_dict=checkpoint)
 			cfg.logger.log_pkl(cfg.histories, 'histories', os.path.splitext(basename)[0]+'.pkl', 'wb')
+		else:
+			# Pause other threads while master is saving
+			# NOTE: Thread timeout ~10s
+			while not os.path.exists(save_path):
+				time.sleep(.5)
 	return _saver
 
 def num_batches(loader, cfg, opt):
