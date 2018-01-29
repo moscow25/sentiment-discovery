@@ -40,8 +40,8 @@ class StackedLSTM(nn.Module):
 		...     hiddens, out = rnn(input[i], hiddens)
 		...     output.append(out)
 	"""
-	def __init__(self, cell, num_layers, input_size, rnn_size, 
-				output_size=-1, dropout=0):
+	def __init__(self, cell, num_layers, input_size, rnn_size,
+				output_size=-1, dropout=0, n_experts=10):
 		super(StackedLSTM, self).__init__()
 
 		self.add_module('dropout', nn.Dropout(dropout))
@@ -52,6 +52,14 @@ class StackedLSTM(nn.Module):
 		self.output_size = output_size
 		self.add_module('layers', nn.ModuleList(
 			[cell(input_size if x == 0 else rnn_size, rnn_size) for x in range(num_layers)]))
+
+		# MoS upon request
+		self.n_experts = n_experts
+		if n_experts > 1:
+			nhidlast = rnn_size
+			ninp = output_size
+			self.prior = nn.Linear(nhidlast, n_experts, bias=False)
+			self.latent = nn.Sequential(nn.Linear(nhidlast, n_experts*ninp), nn.Tanh())
 
 	def forward(self, input, hidden):
 		x = input
@@ -73,7 +81,23 @@ class StackedLSTM(nn.Module):
 		c_1 = torch.stack(c_1)
 		output = h_1
 		if self.output_size > 0:
-			output = self.h2o(x)
+			# MoS -- softmax over N softmaxes
+			# https://github.com/zihangdai/mos/blob/master/model.py
+			# TODO: Can apply decoder layer as well? [see Salesforce model above it based on]
+			if self.n_experts > 1:
+				latent = self.latent(x)
+				logit = latent.view(-1, self.output_size)
+				prior_logit = self.prior(x).contiguous().view(-1, self.n_experts)
+				prior = nn.functional.softmax(prior_logit)
+
+				prob = nn.functional.softmax(logit.view(-1, self.output_size)).view(-1, self.n_experts, self.output_size)
+				prob = (prob * prior.unsqueeze(2).expand_as(prob)).sum(1)
+
+				log_prob = torch.log(prob.add_(1e-8))
+				output = log_prob
+			else:
+				# Otherwise, just hidden to output -- linear function
+				output = self.h2o(x)
 
 		return (h_1, c_1), output
 
