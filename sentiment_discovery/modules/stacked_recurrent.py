@@ -2,6 +2,24 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
+# Creative dropouts -- from Salesforce/MoS repos
+class LockedDropout(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x, dropout=0.5):
+        if not self.training or not dropout:
+            return x
+        #m = x.data.new(1, x.size(1), x.size(2)).bernoulli_(1 - dropout)
+        m = x.data.new(x.size(0), x.size(1)).bernoulli_(1 - dropout)
+        # mask = Variable(m, requires_grad=False) / (1 - dropout)
+        mask = Variable(m.div_(1 - dropout), requires_grad=False)
+        mask = mask.expand_as(x)
+        return mask * x
+
+
+
+
 class StackedLSTM(nn.Module):
 	"""
 	Based on implementation of StackedLSTM from openNMT-py
@@ -41,10 +59,21 @@ class StackedLSTM(nn.Module):
 		...     output.append(out)
 	"""
 	def __init__(self, cell, num_layers, input_size, rnn_size,
-				output_size=-1, dropout=0, n_experts=10):
+				output_size=-1, dropout=0.0, n_experts=10, hidden_dim_reduce=516,
+				dropouth=0.0, dropouti=0.0, dropoute=0.0, ldropout=0.0):
 		super(StackedLSTM, self).__init__()
 
-		self.add_module('dropout', nn.Dropout(dropout))
+		# Different dropouts?
+		self.dropouti = dropouti
+		self.dropouth = dropouth
+		self.dropoute = dropoute
+		self.ldropout = ldropout
+		self.dropoutl = ldropout
+
+		#self.add_module('dropout', nn.Dropout(dropout))
+		self.dropout = dropout
+
+		self.lockdrop = LockedDropout()
 		self.num_layers = num_layers
 		self.rnn_size = rnn_size
 		if output_size > 0:
@@ -58,6 +87,12 @@ class StackedLSTM(nn.Module):
 		if n_experts > 1:
 			nhidlast = rnn_size
 			ninp = output_size
+			# (Optionally) reduce the hidden state dimension before MoS -- helps with memory (but may reduce quality)
+			if hidden_dim_reduce > 0 and hidden_dim_reduce < nhidlast:
+				print('initializing hidden_dim_reduce %d to %d' % (nhidlast, hidden_dim_reduce))
+				self.dim_reducer = nn.Linear(nhidlast, hidden_dim_reduce)
+				nhidlast = hidden_dim_reduce
+			self.hidden_dim_reduce = nhidlast
 			self.prior = nn.Linear(nhidlast, n_experts, bias=False)
 			self.latent = nn.Sequential(nn.Linear(nhidlast, n_experts*ninp), nn.Tanh())
 
@@ -73,7 +108,8 @@ class StackedLSTM(nn.Module):
 			else:
 				x = x + h_1_i
 			if i != len(self.layers):
-				x = self.dropout(x)
+				#x = self.dropout(x)
+				x = self.lockdrop(x, self.dropouth)
 			h_1 += [h_1_i]
 			c_1 += [c_1_i]
 
@@ -85,7 +121,18 @@ class StackedLSTM(nn.Module):
 			# https://github.com/zihangdai/mos/blob/master/model.py
 			# TODO: Can apply decoder layer as well? [see Salesforce model above it based on]
 			if self.n_experts > 1:
+				x = self.lockdrop(x, self.dropout)
+
+				# Reduce dimensions, if requested [memory blowup]
+				if self.hidden_dim_reduce < self.rnn_size:
+					x = self.dim_reducer(x)
+
+				# Compute the value and prior of the MoS
 				latent = self.latent(x)
+
+				# Dropout for latent...
+				latent = self.lockdrop(latent, self.dropoutl)
+
 				logit = latent.view(-1, self.output_size)
 				prior_logit = self.prior(x).contiguous().view(-1, self.n_experts)
 				prior = nn.functional.softmax(prior_logit)
