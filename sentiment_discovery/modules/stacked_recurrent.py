@@ -90,11 +90,12 @@ class StackedLSTM(nn.Module):
 			# (Optionally) reduce the hidden state dimension before MoS -- helps with memory (but may reduce quality)
 			if hidden_dim_reduce > 0 and hidden_dim_reduce < nhidlast:
 				print('initializing hidden_dim_reduce %d to %d' % (nhidlast, hidden_dim_reduce))
-				self.dim_reducer = nn.Linear(nhidlast, hidden_dim_reduce)
+				self.add_module(dim_reducer, nn.Linear(nhidlast, hidden_dim_reduce))
 				nhidlast = hidden_dim_reduce
 			self.hidden_dim_reduce = nhidlast
-			self.prior = nn.Linear(nhidlast, n_experts, bias=False)
-			self.latent = nn.Sequential(nn.Linear(nhidlast, n_experts*ninp), nn.Tanh())
+			self.add_module('prior', nn.Linear(nhidlast, n_experts, bias=False))
+			# NOTE: works better without the nn.Tanh() from word-level MoS paper (could not get Tanh to converge)
+			self.add_module('latent', nn.Sequential(nn.Linear(nhidlast, n_experts*ninp))) # , nn.Tanh()))
 
 	def forward(self, input, hidden):
 		x = input
