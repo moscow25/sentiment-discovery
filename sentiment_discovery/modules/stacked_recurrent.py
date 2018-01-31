@@ -59,7 +59,7 @@ class StackedLSTM(nn.Module):
 		...     output.append(out)
 	"""
 	def __init__(self, cell, num_layers, input_size, rnn_size,
-				output_size=-1, dropout=0.0, n_experts=10, hidden_dim_reduce=516,
+				output_size=-1, dropout=0.0, n_experts=10, hidden_dim_reduce=512,
 				dropouth=0.0, dropouti=0.0, dropoute=0.0, ldropout=0.0):
 		super(StackedLSTM, self).__init__()
 
@@ -90,7 +90,7 @@ class StackedLSTM(nn.Module):
 			# (Optionally) reduce the hidden state dimension before MoS -- helps with memory (but may reduce quality)
 			if hidden_dim_reduce > 0 and hidden_dim_reduce < nhidlast:
 				print('initializing hidden_dim_reduce %d to %d' % (nhidlast, hidden_dim_reduce))
-				self.add_module(dim_reducer, nn.Linear(nhidlast, hidden_dim_reduce))
+				self.add_module('dim_reducer', nn.Linear(nhidlast, hidden_dim_reduce))
 				nhidlast = hidden_dim_reduce
 			self.hidden_dim_reduce = nhidlast
 			self.add_module('prior', nn.Linear(nhidlast, n_experts, bias=False))
