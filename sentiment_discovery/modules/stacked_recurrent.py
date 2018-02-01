@@ -85,6 +85,7 @@ class StackedLSTM(nn.Module):
 		# MoS upon request
 		self.n_experts = n_experts
 		if n_experts > 1:
+			print('initializing %d MoS experts' % n_experts)
 			nhidlast = rnn_size
 			ninp = output_size
 			# (Optionally) reduce the hidden state dimension before MoS -- helps with memory (but may reduce quality)
