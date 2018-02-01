@@ -337,7 +337,7 @@ class ModelWrapper(object):
 		# if we have no loss function then module won't return loss
 		if self.loss_fn is not None:
 			outputs, loss = _outputs
-		else:
+#		else:
 			outputs = _outputs
 			loss = 0
 		return outputs, loss
@@ -399,9 +399,9 @@ class ModelWrapper(object):
 	def state_dict(self, destination=None, prefix='', keep_vars=False):
 		"""mimic nn.Module.state_dict()"""
 		if self.weight_norm:
-			self.remove_weight_norm()
+			#self.remove_weight_norm()
 			sd = self.module.state_dict(destination=destination, prefix=prefix, keep_vars=keep_vars)
-			self.apply_weight_norm()
+			#self.apply_weight_norm()
 		else:
 			sd = self.module.state_dict(destination=destination, prefix=prefix, keep_vars=keep_vars)
 		return sd
