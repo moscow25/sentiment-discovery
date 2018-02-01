@@ -337,7 +337,7 @@ class ModelWrapper(object):
 		# if we have no loss function then module won't return loss
 		if self.loss_fn is not None:
 			outputs, loss = _outputs
-#		else:
+		else:
 			outputs = _outputs
 			loss = 0
 		return outputs, loss
