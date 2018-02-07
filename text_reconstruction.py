@@ -99,13 +99,17 @@ def run_epoch(model, epoch, data2use, data_fn, num_batches, is_training=False,
 	sys.stdout.flush()
 	return loss_avg/num_batches, loss_history
 
-def make_data_fn(is_training, timesteps2use):
+def make_data_fn(is_training, timesteps2use=None):
 	"""returns data function for processing and returning a feed dictionary to be passed to model"""
 	def data_fn(data):
 		text_batch = Variable(data[0].long(), requires_grad=False, volatile=not is_training)
 		mask = Variable(data[1], requires_grad=False, volatile=not is_training)
-		return {'text': text_batch, 'state_mask': mask,
-				'return_sequence': False, 'timesteps': timesteps2use}
+		#return {'text': text_batch, 'state_mask': mask,
+		#		'return_sequence': False, 'timesteps': timesteps2use}
+		if timesteps2use is None:
+			return {'text': text_batch, 'state_mask': mask, 'return_sequence': False}
+		else:
+			return {'text': text_batch, 'state_mask': mask, 'return_sequence': False, 'timesteps': timesteps2use}
 	return data_fn
 
 def main():
@@ -134,7 +138,7 @@ def main():
 	logger = cfg.logger
 
 	train_fn = make_data_fn(True, TIMESTEPS)
-	eval_fn = make_data_fn(False, TIMESTEPS)
+	eval_fn = make_data_fn(False, None)
 
 	for e in outer_loop:
 		loss_avg = 0.

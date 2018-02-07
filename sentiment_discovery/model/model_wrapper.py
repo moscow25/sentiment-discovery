@@ -4,6 +4,7 @@ import numpy as np
 
 from sentiment_discovery.reparameterization import apply_weight_norm, remove_weight_norm
 from torch.nn.parallel import DataParallel, DistributedDataParallel
+import torch
 from .utils import copy_state, clip_gradients, calc_grad_norm, clip_gradient
 from .fp16 import FP16_Optimizer, fp16_to_fp32, fp32_to_fp16
 
@@ -240,7 +241,8 @@ class ModelWrapper(object):
 			self.gn = calc_grad_norm(self.module)
 			# clip gradients
 			if self.clip is not None:
-				clip_gradient(self.module, self.clip)
+				#clip_gradient(self.module, self.clip)
+				torch.nn.utils.clip_grad_norm(self.parameters(), self.clip)
 		self.loss = loss
 		return outputs
 
