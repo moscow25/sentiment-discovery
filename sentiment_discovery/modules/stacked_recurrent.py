@@ -59,7 +59,7 @@ class StackedLSTM(nn.Module):
 		...     output.append(out)
 	"""
 	def __init__(self, cell, num_layers, input_size, rnn_size,
-				output_size=-1, dropout=0.0, n_experts=10, hidden_dim_reduce=4096,
+				output_size=-1, dropout=0.0, n_experts=1, rnn_dim_reduce=4096,
 				dropouth=0.0, dropouti=0.0, dropoute=0.0, ldropout=0.0):
 		super(StackedLSTM, self).__init__()
 
@@ -89,11 +89,11 @@ class StackedLSTM(nn.Module):
 			nhidlast = rnn_size
 			ninp = output_size
 			# (Optionally) reduce the hidden state dimension before MoS -- helps with memory (but may reduce quality)
-			if hidden_dim_reduce > 0 and hidden_dim_reduce < nhidlast:
-				print('initializing hidden_dim_reduce %d to %d' % (nhidlast, hidden_dim_reduce))
-				self.add_module('dim_reducer', nn.Linear(nhidlast, hidden_dim_reduce))
-				nhidlast = hidden_dim_reduce
-			self.hidden_dim_reduce = nhidlast
+			if rnn_dim_reduce > 0 and rnn_dim_reduce < nhidlast:
+				print('initializing rnn_dim_reduce %d to %d' % (nhidlast, rnn_dim_reduce))
+				self.add_module('dim_reducer', nn.Linear(nhidlast, rnn_dim_reduce))
+				nhidlast = rnn_dim_reduce
+			self.rnn_dim_reduce = nhidlast
 			self.add_module('prior', nn.Linear(nhidlast, n_experts, bias=False))
 			# NOTE: works better without the nn.Tanh() from word-level MoS paper (could not get Tanh to converge)
 			self.add_module('latent', nn.Sequential(nn.Linear(nhidlast, n_experts*ninp))) # , nn.Tanh()))
@@ -126,7 +126,7 @@ class StackedLSTM(nn.Module):
 				x = self.lockdrop(x, self.dropout)
 
 				# Reduce dimensions, if requested [memory blowup]
-				if self.hidden_dim_reduce < self.rnn_size:
+				if self.rnn_dim_reduce < self.rnn_size:
 					x = self.dim_reducer(x)
 
 				# Compute the value and prior of the MoS

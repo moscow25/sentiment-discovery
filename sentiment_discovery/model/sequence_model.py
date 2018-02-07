@@ -32,7 +32,7 @@ class SequenceModel(nn.Module):
 		  for each layer of each element in the batch
 		- **c_1** (num_layers, batch, hidden_size): tensor containing the next cell state
 		  for each layer of each element in the batch
-		- **output** (batch, output_size): tensor containing output of stacked rnn. 
+		- **output** (batch, output_size): tensor containing output of stacked rnn.
 			If `output_size==-1` then this is equivalent to `h_1`
 	Examples:
 		>>> rnn = nn.StackedLSTM(mLSTMCell, 1, 10, 20, 15, 0)
@@ -46,7 +46,7 @@ class SequenceModel(nn.Module):
 		...     output.append(out)
 	"""
 
-	def __init__(self, embed, cell, n_layers, in_size, rnn_size, out_size, dropout, fused=False):
+	def __init__(self, embed, cell, n_layers, in_size, rnn_size, out_size, dropout, fused=False, n_experts=1, rnn_dim_reduce=4096):
 		super(SequenceModel, self).__init__()
 		self.add_module('embedder', embed)
 		cell = cell.lower()
@@ -58,12 +58,13 @@ class SequenceModel(nn.Module):
 			rnn_cell = nn.LSTMCell
 		else:
 			rnn_cell = nn.RNNCell
-		rnn = StackedLSTM(rnn_cell, n_layers, in_size, rnn_size, out_size, dropout)
+		rnn = StackedLSTM(rnn_cell, n_layers, in_size, rnn_size, out_size, dropout,
+			n_experts=n_experts, rnn_dim_reduce=rnn_dim_reduce)
 		self.add_module('rnn', rnn)
 
 	def rnn_parameters(self):
 		"""gets params of rnn/lstm"""
-		return self.rnn.parameters() 
+		return self.rnn.parameters()
 
 	def unpack_args(self, *inputs, **kwargs):
 		"""unpacks argument from input list and kwargs dict, and handles missing data/different argument formats"""
@@ -87,7 +88,7 @@ class SequenceModel(nn.Module):
 		transpose = False
 		hidden_init = self.get_arg('hidden_init', inputs, arg_map)
 		if hidden_init is None:
-			# TODO: check if variable.volatile is a valid attribute of a variable 
+			# TODO: check if variable.volatile is a valid attribute of a variable
 			hidden_init = self.state0(x.size(0), make_cuda=using_cuda, volatile=x.volatile)
 			hidden = hidden_init
 		else:

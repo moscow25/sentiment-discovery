@@ -7,20 +7,13 @@ import torch
 import sentiment_discovery.learning_rates as learning_rates
 from sentiment_discovery.model import save
 
-# Experimental -- try MoS -- mixture of Softmax.
-# Blog http://smerity.com/articles/2017/mixture_of_softmaxes.html
-# Code https://github.com/zihangdai/mos
-# Perform mixture *after* final combine multiplicative step [perhaps not ideal, but keeps things simple]
-# N_experts == 1 defaults to non-MoS behaviour
-N_EXPERTS = 10 # 10
-
 class ScriptConfig(object):
 	def __init__(self):
 		super(ScriptConfig, self).__init__()
 	def apply(self, cfg, opt):
 		print('configuring learning')
 		if not opt.no_loss:
-			if N_EXPERTS > 1:
+			if opt.n_experts > 1:
 				# If MoS, then we get outputs *already* in Softmax form!
 				loss_fn = torch.nn.NLLLoss()
 			else:
@@ -158,6 +151,8 @@ def script_config(parser):
 	parser.set_defaults(rnn_size=4096)
 	parser.set_defaults(layers=1)
 	parser.set_defaults(dropout=0)
+	parser.set_defaults(n_experts=1)
+	parser.set_defaults(rnn_dim_reduce=4096)
 	parser.set_defaults(weight_norm=False)
 	parser.set_defaults(lstm_only=False)
 	parser.set_defaults(model_dir='model')

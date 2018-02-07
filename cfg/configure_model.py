@@ -14,6 +14,8 @@ class ModuleConfig(object):
 		num_layers = opt.layers
 		embed_size = opt.embed_size
 		hidden_size = opt.rnn_size
+		n_experts = opt.n_experts
+		rnn_dim_reduce = opt.rnn_dim_reduce
 		# set in configure_data
 		data_size = opt.data_size
 		dropout = opt.dropout
@@ -30,6 +32,7 @@ class ModuleConfig(object):
 			cell_type=cell_type, fused=fused, num_layers=num_layers,
 			embed_size=embed_size, hidden_size=hidden_size,
 			data_size=data_size, dropout=dropout, weight_norm=w_norm,
+			n_experts=n_experts, rnn_dim_reduce=rnn_dim_reduce,
 			lstm_only=lstm_only, saved_path=saved_path)
 		cfg.model = model
 		cfg.chkpt = chkpt
@@ -61,4 +64,8 @@ def configure_model(parser):
 						help='if `-weight_norm` is applied to the model, apply it to the lstm parmeters only')
 	parser.add_argument('-dropout', type=float, default=0.1,
 						help='Dropout probability.')
+	parser.add_argument('-n_experts', type=int, default=1,
+						help='Set to > 1 for Mixture of Softmax (MoS)')
+	parser.add_argument('-rnn_dim_reduce', type=int, default=4096,
+						help='Reduce hidden state to smaller size before Softmax? Can be necessary for large n_experts')
 	return ModuleConfig(parser)
