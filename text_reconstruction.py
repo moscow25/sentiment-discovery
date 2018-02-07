@@ -88,7 +88,8 @@ def run_epoch(model, epoch, data2use, data_fn, num_batches, is_training=False,
 			print('saving iter %s of epoch %s'%(str(s), str(epoch)))
 			if saver is not None:
 				saver('.%s.pt'%(str(s)), loss_history)
-
+			# Sync threads so dont timeout while saving
+			torch.cuda.synchronize()
 		start = time.time()
 
 	#set back to training mode just in case

@@ -59,7 +59,7 @@ class StackedLSTM(nn.Module):
 		...     output.append(out)
 	"""
 	def __init__(self, cell, num_layers, input_size, rnn_size,
-				output_size=-1, dropout=0.0, n_experts=10, hidden_dim_reduce=512,
+				output_size=-1, dropout=0.0, n_experts=10, hidden_dim_reduce=4096,
 				dropouth=0.0, dropouti=0.0, dropoute=0.0, ldropout=0.0):
 		super(StackedLSTM, self).__init__()
 

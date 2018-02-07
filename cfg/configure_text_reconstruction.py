@@ -85,11 +85,11 @@ def make_saver(cfg, opt):
 				checkpoint['optim'] = cfg.optim
 			save(cfg.model, save_path, save_dict=checkpoint)
 			cfg.logger.log_pkl(cfg.histories, 'histories', os.path.splitext(basename)[0]+'.pkl', 'wb')
-		else:
+		#else:
 			# Pause other threads while master is saving
 			# NOTE: Thread timeout ~10s
-			while not os.path.exists(save_path):
-				time.sleep(.5)
+			#while not os.path.exists(save_path):
+			#	time.sleep(.5)
 	return _saver
 
 def num_batches(loader, cfg, opt):
