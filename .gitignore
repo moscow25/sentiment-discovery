@@ -1,0 +1,7 @@
+# Saved models
+##############
+*.pt
+
+# Generated Python stuff
+##############
+*__pycache__*
