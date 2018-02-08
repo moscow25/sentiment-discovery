@@ -104,12 +104,7 @@ def make_data_fn(is_training, timesteps2use=None):
 	def data_fn(data):
 		text_batch = Variable(data[0].long(), requires_grad=False, volatile=not is_training)
 		mask = Variable(data[1], requires_grad=False, volatile=not is_training)
-		#return {'text': text_batch, 'state_mask': mask,
-		#		'return_sequence': False, 'timesteps': timesteps2use}
-		if timesteps2use is None:
-			return {'text': text_batch, 'state_mask': mask, 'return_sequence': False}
-		else:
-			return {'text': text_batch, 'state_mask': mask, 'return_sequence': False, 'timesteps': timesteps2use}
+		return {'text': text_batch, 'state_mask': mask, 'return_sequence': False, 'timesteps': timesteps2use}
 	return data_fn
 
 def main():
