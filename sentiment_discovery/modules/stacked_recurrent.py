@@ -93,6 +93,8 @@ class StackedLSTM(nn.Module):
 				print('initializing rnn_dim_reduce %d to %d' % (nhidlast, rnn_dim_reduce))
 				self.add_module('dim_reducer', nn.Linear(nhidlast, rnn_dim_reduce))
 				nhidlast = rnn_dim_reduce
+			else:
+				print('keeping rnn_hidden size %d' % nhidlast)
 			self.rnn_dim_reduce = nhidlast
 			self.add_module('prior', nn.Linear(nhidlast, n_experts, bias=False))
 			# NOTE: works better without the nn.Tanh() from word-level MoS paper (could not get Tanh to converge)
