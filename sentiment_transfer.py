@@ -47,7 +47,7 @@ def plot_logits(model_name, dsname, X, Y, model, logger, k=10, top_neurons=None)
 	#make directories for logit pkl and logit graph
 	vizpath = logger.get_log_dir('logit_vis')
 
-	top_neurons=list(top_neurons)+[1285]
+	top_neurons=list(top_neurons)+[1]
 	#plot logits of each of the top neurons
 	for i, n in enumerate(top_neurons):
 		utils.plot_logit_and_save(trXt, trY, n, os.path.join(vizpath, str(i)+'_'+str(n)))
@@ -138,6 +138,7 @@ if __name__ == '__main__':
 	format_wo_base_file = os.path.split(formatted_name)[0]
 
 	# featurize data with neurons
+	print('featurizing data')
 	trXt = None
 	if trX is not None:
 		trY = arrange_labels(trX, trX.dataset.Y)
@@ -159,6 +160,7 @@ if __name__ == '__main__':
 	Xplot, Yplot, plotname = configure_plotting(opt, trXt, trY, vaXt, vaY, teXt, teY)
 
 	assert trXt is not None
+	print('training train_sklearn_logreg')
 	log_reg_model, full_rep_accs, c, nnotzero = train_sklearn_logreg(trXt, trY, vaXt, vaY, teXt, teY,
 																		eval_test=not opt.no_test_eval)
 	plot_logits(opt.load_model, plotname, Xplot, Yplot, log_reg_model, logger)
@@ -207,7 +209,7 @@ if __name__ == '__main__':
 		teXt_sentiment = utils.get_neuron_features(teXt, top_neurons)
 
 	log_reg_model2, full_rep_accs, c, nnotzero = train_sklearn_logreg(
-													trXt_sentiment, trY, vaXt_sentiment, vaY, 
+													trXt_sentiment, trY, vaXt_sentiment, vaY,
 													teXt_sentiment, teY, eval_test=not opt.no_test_eval)
 	print_and_save_accs(logger, opt.load_model, plotname, full_rep_accs, nnotzero, 'n_neurons', c)
 
