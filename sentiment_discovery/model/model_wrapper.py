@@ -410,4 +410,4 @@ class ModelWrapper(object):
 
 	def load_state_dict(self, state_dict, strict=True):
 		"""mimic nn.Module.load_state_dict()"""
-		self.module.load_state_dict(state_dict, strict=strict)
+		self.module.load_state_dict(state_dict, strict=False)
