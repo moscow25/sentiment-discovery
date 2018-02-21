@@ -138,23 +138,42 @@ if __name__ == '__main__':
 	format_wo_base_file = os.path.split(formatted_name)[0]
 
 	# featurize data with neurons
-	print('featurizing data')
-	trXt = None
-	if trX is not None:
-		trY = arrange_labels(trX, trX.dataset.Y)
-		trXt = transform(model, trX, batch_size)
-		trY = trY[:len(trXt)]
-	vaXt = None
-	if vaX is not None:
-		vaY = arrange_labels(vaX, vaX.dataset.Y)
-		vaXt = transform(model, vaX, batch_size)
-		vaY = vaY[:len(vaXt)]
-	teXt = None
-	if teX is not None:
-		teY = arrange_labels(teX, teX.dataset.Y)
-		teXt = transform(model, teX, batch_size)
-		teY = teY[:len(teXt)]
+	print('collecting features')
+	if not os.path.isfile('trXt.npy'):
+		print('featurizing data')
+		trXt = None
+		if trX is not None:
+			trY = arrange_labels(trX, trX.dataset.Y)
+			trXt = transform(model, trX, batch_size)
+			trY = trY[:len(trXt)]
+		vaXt = None
+		if vaX is not None:
+			vaY = arrange_labels(vaX, vaX.dataset.Y)
+			vaXt = transform(model, vaX, batch_size)
+			vaY = vaY[:len(vaXt)]
+		teXt = None
+		if teX is not None:
+			teY = arrange_labels(teX, teX.dataset.Y)
+			teXt = transform(model, teX, batch_size)
+			teY = teY[:len(teXt)]
 
+		print('\n--> Caching featurization for re-use')
+		np.save('trXt', trXt)
+		np.save('trY', trY)
+		np.save('vaXt', vaXt)
+		np.save('vaY', vaY)
+		np.save('teXt', teXt)
+		np.save('teY', teY)
+	else:
+		print('\n--> loading cached features')
+		trXt = np.load('trXt.npy')
+		trY = np.load('trY.npy')
+		vaXt = np.load('vaXt.npy')
+		vaY = np.load('vaY.npy')
+		teXt = np.load('teXt.npy')
+		teY = np.load('teY.npy')
+
+	# TODO: Don't need to load model if we have cached features?
 	del model
 
 	Xplot, Yplot, plotname = configure_plotting(opt, trXt, trY, vaXt, vaY, teXt, teY)
