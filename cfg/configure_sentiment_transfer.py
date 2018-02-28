@@ -6,7 +6,7 @@ class ScriptConfig(object):
 
 def script_config(parser):
 	"""creates transfer-specific flags and sets default values of other flags"""
-	parser.add_argument('-num_neurons', type=int, default=1,
+	parser.add_argument('-num_neurons', type=int, default=25,
 							help='Number of neurons to consider as a sentiment neuron')
 	parser.add_argument('-no_test_eval', action='store_true',
 						help='whether to not evaluate the test model (useful when your test set has no labels)')

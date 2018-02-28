@@ -68,9 +68,10 @@ def print_and_save_accs(logger, model_name, dsname, accs, nnotzero, neuron_type=
 	"""get and print/log accuracy string"""
 	acc_string = get_and_save_accuracy_string(logger, model_name, dsname, accs, neuron_type)
 	print('%s train/val/test accuracy w/ %s'%(acc_string, neuron_type))
-	if c is not None:
-		print('%05.2f regularization coef w/ %s'%(c, neuron_type))
-	print('%05d features used w/ all neurons %s'%(nnotzero, neuron_type))
+	# TODO: log(DEBUG) these extra details (or join on same line)
+	#if c is not None:
+	#	print('%05.2f regularization coef w/ %s'%(c, neuron_type))
+	#print('%05d features used w/ all neurons %s'%(nnotzero, neuron_type))
 
 def configure_plotting(opt, trXt, trY, vaXt, vaY, teXt, teY):
 	"""figure out whether to plot train or test"""
@@ -187,25 +188,47 @@ if __name__ == '__main__':
 
 	logger.log_pkl(full_rep_accs[-1], 'test_probs', 'all_neurons.pkl', 'wb')
 
-	top_neurons = utils.get_top_k_neuron_weights(log_reg_model.coef_.T, k=opt.num_neurons)
+	# Display sentiment extraction for N neurons for all useful N between 1 and opt.num_neurons
+	max_n_neurons = opt.num_neurons
+	n_neurons_list = np.array(list(range(1,max_n_neurons)))
+	# Keep 1..5 and then every n_neurons in blocks of 5
+	n_neurons_list = n_neurons_list[np.where((n_neurons_list < 5) | (n_neurons_list % 5 == 0))]
+	print('Computing sentiment for n_neuron ranges %s' % list(n_neurons_list))
+	for num_neurons in n_neurons_list:
+		top_neurons = utils.get_top_k_neuron_weights(log_reg_model.coef_.T, k=num_neurons)
 
-	print_neurons = top_neurons
-	if opt.num_neurons < 5:
-		print_neurons = utils.get_top_k_neuron_weights(log_reg_model.coef_.T, k=5)
+		print_neurons = top_neurons
+		if num_neurons < 5:
+			print_neurons = utils.get_top_k_neuron_weights(log_reg_model.coef_.T, k=5)
 
-	print('neuron(s) %s are sentiment neurons'%(', '.join(list(map(str, print_neurons.tolist())))))
-	sys.stdout.flush()
+		print('neuron(s) %s are sentiment neurons'%(', '.join(list(map(str, print_neurons.tolist())))))
+		sys.stdout.flush()
 
-	masked_log_reg_model=utils.get_masked_model(log_reg_model, top_neurons)
-	masked_log_reg_model, masked_full_rep_accs, c, nnotzero = train_sklearn_logreg(
-																trXt, trY, vaXt, vaY, teXt, teY,
-																model=masked_log_reg_model,
-																eval_test=not opt.no_test_eval)
-	print_and_save_accs(logger, opt.load_model, plotname, masked_full_rep_accs, nnotzero, 'masked_n_neurons')
+		# Not sure what get_masked_model does and if it works? Always same answer.
+		masked_log_reg_model=utils.get_masked_model(log_reg_model, top_neurons)
+		masked_log_reg_model, masked_full_rep_accs, c, nnotzero = train_sklearn_logreg(
+																	trXt, trY, vaXt, vaY, teXt, teY,
+																	model=masked_log_reg_model,
+																	eval_test=not opt.no_test_eval)
+		#print_and_save_accs(logger, opt.load_model, plotname, masked_full_rep_accs, nnotzero, 'masked_%d_neurons' % num_neurons)
+
+		# Compute sentiment with only X neurons.
+		trXt_sentiment = utils.get_neuron_features(trXt, top_neurons)
+		vaXt_sentiment = None
+		if cfg.valid is not None:
+			vaXt_sentiment = utils.get_neuron_features(vaXt, top_neurons)
+		teXt_sentiment = None
+		if cfg.test is not None:
+			teXt_sentiment = utils.get_neuron_features(teXt, top_neurons)
+
+		log_reg_model2, full_rep_accs, c, nnotzero = train_sklearn_logreg(
+														trXt_sentiment, trY, vaXt_sentiment, vaY,
+														teXt_sentiment, teY, eval_test=not opt.no_test_eval)
+		print_and_save_accs(logger, opt.load_model, plotname, full_rep_accs, nnotzero, '%d_neurons' % num_neurons, c)
 
 	if opt.write_results != '':
 		five_proba = None
-		if opt.num_neurons < 5:
+		if num_neurons < 5:
 			masked_log_reg_model_5 = utils.get_masked_model(log_reg_model, print_neurons)
 			masked_log_reg_model_5, masked_full_rep_accs_5, c_5, nnotzero_5 = train_sklearn_logreg(
 																				trXt, trY, vaXt, vaY, teXt, teY,
@@ -219,6 +242,7 @@ if __name__ == '__main__':
 
 	sys.stdout.flush()
 
+	"""
 	trXt_sentiment = utils.get_neuron_features(trXt, top_neurons)
 	vaXt_sentiment = None
 	if cfg.valid is not None:
@@ -235,6 +259,7 @@ if __name__ == '__main__':
 	logger.log_pkl(full_rep_accs[-1], 'test_probs', 'n_neurons.pkl', 'wb')
 
 	sys.stdout.flush()
+	"""
 
 	pkl.dump(full_rep_accs[-1], open('extracted_proba.pkl', 'wb'))
 

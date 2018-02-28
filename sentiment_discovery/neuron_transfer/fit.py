@@ -56,8 +56,8 @@ def inference_loop(model, data_iter, persist_state=False):
 
 def data_fn(data):
 	"""returns data function for processing and returning a feed dictionary to be passed to model"""
-	text_batch = Variable(data[0].long(), volatile=True)
-	timesteps2use = Variable(data[-1], volatile=True)
+	text_batch = Variable(data[0].long())
+	timesteps2use = Variable(data[-1])
 	return {'text': text_batch, 'return_sequence': False, 'timesteps': timesteps2use-1}
 
 def train_sklearn_logreg(trX, trY, vaX=None, vaY=None, teX=None, teY=None, penalty='l1',
