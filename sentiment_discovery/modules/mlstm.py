@@ -48,7 +48,7 @@ class mLSTMCell(nn.Module):
 		self.bias = bias
 		self.fused = fused_lstm
 
-		self.add_module('wx', nn.Linear(data_size, 4*hidden_size, bias=False))
+		self.add_module('wx', nn.Linear(data_size, 4*hidden_size, bias=bias))
 		self.add_module('wh', nn.Linear(hidden_size, 4*hidden_size, bias=bias))
 		self.add_module('wmx', nn.Linear(data_size, hidden_size, bias=False))
 		self.add_module('wmh', nn.Linear(hidden_size, hidden_size, bias=False))
