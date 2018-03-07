@@ -190,7 +190,7 @@ if __name__ == '__main__':
 
 	# Display sentiment extraction for N neurons for all useful N between 1 and opt.num_neurons
 	max_n_neurons = opt.num_neurons
-	n_neurons_list = np.array(list(range(1,max_n_neurons)))
+	n_neurons_list = np.array(list(range(1,max_n_neurons+1)))
 	# Keep 1..5 and then every n_neurons in blocks of 5
 	n_neurons_list = n_neurons_list[np.where((n_neurons_list < 5) | (n_neurons_list % 5 == 0))]
 	print('Computing sentiment for n_neuron ranges %s' % list(n_neurons_list))
@@ -235,7 +235,7 @@ if __name__ == '__main__':
 																				model=masked_log_reg_model_5,
 																				eval_test=not opt.no_test_eval)
 		csv_writer = get_csv_writer(opt, teXt[:,top_neurons], top_neurons, full_rep_accs[-1],
-									masked_full_rep_accs[-1], masked_full_rep_accs_5[-1],
+									masked_full_rep_accs[-1], full_rep_accs[-1], # masked_full_rep_accs_5[-1],
 									teXt[:,print_neurons], print_neurons)
 		teX.dataset.write(csv_writer, path=opt.write_results)
 	logger.log_pkl(masked_full_rep_accs[-1], 'test_probs', 'masked_n_neurons.pkl', 'wb')
