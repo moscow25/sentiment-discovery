@@ -5,6 +5,7 @@ import collections
 from torch.autograd import Variable
 import numpy as np
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import confusion_matrix, auc, roc_curve
 
 from sentiment_discovery.model import run_model
 
@@ -95,10 +96,15 @@ def train_sklearn_logreg(trX, trY, vaX=None, vaY=None, teX=None, teY=None, penal
 		val_score = model.score(vaX, vaY)*100.
 	if teX is not None and teY is not None:
 		if not eval_test:
-			score = (train_score, val_score, val_score, model.predict_proba(teX))
+			score = (train_score, val_score, val_score, model.predict_proba(teX), 0.0)
 		else:
 			eval_score = model.score(teX, teY)*100
-			score = (train_score, val_score, eval_score, model.predict_proba(teX))
+			# As well as accuracy, report the eval set AUC
+			fpr, tpr, thresholds = roc_curve(teY, model.predict_proba(teX)[:,1], pos_label=1.)
+			eval_auc = auc(fpr,tpr)
+			#print('AUC %.2f' % eval_auc))
+			#print('--------')
+			score = (train_score, val_score, eval_score, model.predict_proba(teX), eval_auc)
 	else:
 		score = (train_score, val_score, val_score, model.predict_proba(eval_data))
 	return model, score, c, nnotzero
