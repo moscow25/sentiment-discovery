@@ -96,7 +96,7 @@ def train_sklearn_logreg(trX, trY, vaX=None, vaY=None, teX=None, teY=None, penal
 		val_score = model.score(vaX, vaY)*100.
 	if teX is not None and teY is not None:
 		if not eval_test:
-			score = (train_score, val_score, val_score, model.predict_proba(teX), 0.0)
+			score = (train_score, val_score, val_score, 0.0, model.predict_proba(teX))
 		else:
 			eval_score = model.score(teX, teY)*100
 			# As well as accuracy, report the eval set AUC
@@ -104,7 +104,7 @@ def train_sklearn_logreg(trX, trY, vaX=None, vaY=None, teX=None, teY=None, penal
 			eval_auc = auc(fpr,tpr)
 			#print('AUC %.2f' % eval_auc))
 			#print('--------')
-			score = (train_score, val_score, eval_score, model.predict_proba(teX), eval_auc)
+			score = (train_score, val_score, eval_score, eval_auc, model.predict_proba(teX))
 	else:
 		score = (train_score, val_score, val_score, model.predict_proba(eval_data))
 	return model, score, c, nnotzero

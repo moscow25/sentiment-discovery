@@ -56,7 +56,7 @@ def plot_logits(model_name, dsname, X, Y, model, logger, k=10, top_neurons=None)
 
 def get_accuracy_string(full_rep_accs):
 	"""format string with accuracies"""
-	return '%05.2f/%05.2f/%05.2f (%.3f AUC)'%(full_rep_accs[0], full_rep_accs[1], full_rep_accs[2], full_rep_accs[4])
+	return '%05.2f/%05.2f/%05.2f (%.3f AUC)'%(full_rep_accs[0], full_rep_accs[1], full_rep_accs[2], full_rep_accs[3])
 
 def get_and_save_accuracy_string(logger, model_name, dsname, accs, neuron_type='all_neurons'):
 	"""save and return accuracy string to appropriate experiment directory"""
