@@ -3,21 +3,22 @@ import pandas as pd
 import csv, os, time, re
 
 #column_name = 'best_emotion'
-#column_name = 'what_is_the_authors_sentiment_feeling_throughout_the_post'
+column_name = 'what_is_the_authors_sentiment_feeling_throughout_the_post'
 #column_name = 'what_emotions_is_the_author_feeling'
-column_name = 'which_of_the_joysadness_emotions_is_the_author_feeling'
+#column_name = 'which_of_the_joysadness_emotions_is_the_author_feeling'
 column_value_name = column_name + ':confidence'
+watson_value_name = 'label'
 
 # if we care about opposite categories?
-#opposite_map = {'1':'3', '2':'2', '3':'1',
-#        'joy':'sadness', 'sadness':'joy', 'trust':'disgust', 'disgust':'trust',
-#        'anger': 'fear', 'fear':'anger', 'surprise':'anticipation', 'anticipation':'surprise',
-#        'no_emotion':'no_emotion', 'no_emotionneutral':'no_emotionneutral', }
+opposite_map = {'1':'3', '2':'2', '3':'1',
+        'joy':'sadness', 'sadness':'joy', 'trust':'disgust', 'disgust':'trust',
+        'anger': 'fear', 'fear':'anger', 'surprise':'anticipation', 'anticipation':'surprise',
+        'no_emotion':'no_emotion', 'no_emotionneutral':'no_emotionneutral', }
 # Facebook
-opposite_map = {
-        'no_emotion':'no_emotion',
-        'joy':'sadness', 'sadness': 'joy',
-        'surprise':'no_emotion', 'anger':'joy', 'lol':'sadness'}
+#opposite_map = {
+#        'no_emotion':'no_emotion',
+#        'joy':'sadness', 'sadness': 'joy',
+#        'surprise':'no_emotion', 'anger':'joy', 'lol':'sadness'}
 save_neutrals = False # do we keep 0.5 labels for a category?
 fill_in_class_balance = True # If no neutrals... convert enough to negatives?
 LABEL_THRESHOLD = 0.30
@@ -28,6 +29,9 @@ def cleanup_text(t):
         t_re = re.sub(r"\\x[0-9a-z]{2}", "", t)
         # Remove URLs
         t_re = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', t)
+        # Other rewrites
+        t_re = re.sub(r'&amp;', '&', t_re)
+        t_re = re.sub(r'&#039;', "'", t_re)
         # Second attempt at unreadable characters
         t_re = "".join(x for x in t_re if (x.isspace() or 31 < ord(x) < 127))
         if t != t_re:
@@ -78,14 +82,17 @@ def get_category_labels(category, category_column, label_column, label_threshold
                         rtn.append(0.5)
         return np.array(rtn)
 
-def get_category_text_label_column(csv_path):
+def get_category_text_label_column(csv_path, use_watson = True):
         c = pd.read_csv(csv_path)
-        return c[column_name].values.tolist(), c['text'].values.tolist(), c[column_value_name].values.tolist()
+        if use_watson:
+                return c[column_name].values.tolist(), c['text'].values.tolist(), c[column_value_name].values.tolist(), c[watson_value_name].values.tolist()
+        else:
+                return c[column_name].values.tolist(), c['text'].values.tolist(), c[column_value_name].values.tolist()
 
 # 'CF' prefix for CrowdFlower
 # 'FB' prefix for Facebook
-def write_csv(basepath, category, text, lab,
-        save_neutrals=True, vs_all=True, test_set=0.20, val_set=0.20, cat_prefix='FB'):
+def write_csv(basepath, category, text, lab, watson = [],
+        save_neutrals=False, vs_all=False, test_set=0.10, val_set=0.10, cat_prefix='CFWatson'):
         if vs_all:
                 vs_all_string = '_vs_all'
         else:
@@ -121,14 +128,14 @@ def write_csv(basepath, category, text, lab,
                         with open(fileout_path_val, 'w') as f_val:
                                 if val_set > 0.:
                                         c_val = csv.writer(f_val)
-                                        c_val.writerow(['sentence', 'label'])
+                                        c_val.writerow(['sentence', 'label', 'watson'])
                                 if test_set > 0.:
                                         c_test = csv.writer(f_test)
-                                        c_test.writerow(['sentence', 'label'])
+                                        c_test.writerow(['sentence', 'label', 'watson'])
                                 c = csv.writer(f)
-                                c.writerow(['sentence', 'label'])
+                                c.writerow(['sentence', 'label', 'watson'])
                                 print('average label value %.3f' % np.mean(lab))
-                                for row in zip([s.encode("utf-8") for s in text],lab):
+                                for row in zip([s.encode("utf-8") for s in text],lab, watson):
                                         # alternatively, do vs-all-fillin [positives vs random]
                                         if vs_all:
                                                 if row[1] == 1.0:
@@ -140,11 +147,11 @@ def write_csv(basepath, category, text, lab,
                                                                 c.writerow(row)
                                                 elif np.random.random() <= vs_all_fillin_rate:
                                                         if np.random.random() < test_set:
-                                                                c_test.writerow((row[0],0.0))
+                                                                c_test.writerow((row[0],0.0,row[2]))
                                                         elif np.random.random() < val_set:
-                                                                c_val.writerow((row[0],0.0))
+                                                                c_val.writerow((row[0],0.0,row[2]))
                                                         else:
-                                                                c.writerow((row[0],0.0))
+                                                                c.writerow((row[0],0.0,row[2]))
                                                 continue
                                         # else... save positives, negatives, and filling 0.5 if not enough negs
                                         if (not save_neutrals) and row[1] == 0.5:
@@ -152,11 +159,11 @@ def write_csv(basepath, category, text, lab,
                                                 if fill_in_class_balance and np.random.random() <= negatives_fillin_rate:
                                                         #print(row)
                                                         if np.random.random() < test_set:
-                                                                c_test.writerow((row[0],0.0))
+                                                                c_test.writerow((row[0],0.0,row[2]))
                                                         elif np.random.random() < val_set:
-                                                                c_val.writerow((row[0],0.0))
+                                                                c_val.writerow((row[0],0.0,row[2]))
                                                         else:
-                                                                c.writerow((row[0],0.0))
+                                                                c.writerow((row[0],0.0,row[2]))
                                                 continue
                                         if np.random.random() < test_set:
                                                 c_test.writerow(row)
@@ -166,14 +173,14 @@ def write_csv(basepath, category, text, lab,
                                                 c.writerow(row)
 
 #input_filename = 'crowdflower.plutchik.csv'
-#input_filename = 'a1204167-single-label-sentiment.csv'
+input_filename = 'a1204167-single-label-sentiment.csv'
 #input_filename = 'a1204979-first-cut-aggregated.csv'
 #input_filename = 'a1207640-second-cut-aggregated.csv'
 #input_filename = 'a1204979-first-second-cut-aggregated.csv'
-input_filename = 'a1213744-first-cut-FB-aggregated.csv'
+#input_filename = 'a1213744-first-cut-FB-aggregated.csv'
 #input_filename = 'a1207640-2500-plutchik.csv'
 
-cats, text, lab = get_category_text_label_column(input_filename)
+cats, text, lab, watson = get_category_text_label_column(input_filename)
 #cats = [item.lower() for item in cats]
 cats = [item.lower() for item in cats]
 text = [cleanup_text(t) for t in text]
@@ -185,4 +192,4 @@ basepath = 'crowdflower'
 categories = get_categories(cats)
 for c in categories:
         l = get_category_labels(c, cats, lab)
-        write_csv(basepath, c, text, l, save_neutrals = save_neutrals)
+        write_csv(basepath, c, text, l, watson=watson, save_neutrals = save_neutrals)
