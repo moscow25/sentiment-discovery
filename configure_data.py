@@ -31,8 +31,8 @@ def make_loaders(opt):
         eval_seq_length = eval_seq_length * opt.world_size
     # TODO: fix data race in lazy loader
     # data_loader_args = {'num_workers': 10, 'shuffle': opt.shuffle, 'batch_size': batch_size,
-    data_loader_args = {'num_workers': 1, 'shuffle': opt.shuffle, 'batch_size': batch_size,
-                    'pin_memory': True, 'transpose': opt.transpose, 'distributed': opt.world_size > 1,
+    data_loader_args = {'num_workers': 0, 'shuffle': opt.shuffle, 'batch_size': batch_size,
+                    'pin_memory': False, 'transpose': opt.transpose, 'distributed': opt.world_size > 1,
                     'rank': opt.rank, 'world_size': opt.world_size, 'drop_last': opt.world_size > 1}
     split = get_split(opt)
     data_set_args = {
@@ -94,7 +94,7 @@ def should_split(split):
 
 def get_split(opt):
     splits = []
-    if opt.split.find(',') != -1: 
+    if opt.split.find(',') != -1:
         splits = [float(s) for s in opt.split.split(',')]
     elif opt.split.find('/') != -1:
         splits = [float(s) for s in opt.split.split('/')]

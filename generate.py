@@ -132,6 +132,7 @@ def model_step(model, input, neuron=None, mask=False, mask_value=1, polarity=1):
         return out, feat
     return out
 
+# Sample character with a temperature...
 def sample(out, temperature):
     if temperature == 0:
         char_idx = torch.max(out.squeeze().data, 0)[1][0]
@@ -156,6 +157,7 @@ def process_text(text, model, input, temperature, neuron=None, mask=False, overw
 #    chrs.append(chr(ch))
     return chrs, vals
 
+# Generates with temperature...
 def generate(gen_length, model, input, temperature, neuron=None, mask=False, overwrite=1, polarity=1):
     chrs = []
     vals = []
@@ -202,7 +204,7 @@ def make_heatmap(text, values, save=None, polarity=1):
 neuron, polarity = get_neuron_and_polarity(sd, args.neuron)
 neuron = neuron if args.visualize or args.overwrite is not None else None
 mask = args.overwrite is not None
-    
+
 model.eval()
 
 hidden = model.rnn.init_hidden(1)
