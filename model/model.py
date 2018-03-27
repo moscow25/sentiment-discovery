@@ -32,10 +32,10 @@ class RNNAutoEncoderModel(nn.Module):
     def decode_out(self, input, hidden_output):
         # print(hidden_output)
         # print(hidden_output[0].size())
-        self.decoder.set_hidden(hidden_output, detach=False)
+        self.decoder.set_hidden(hidden_output)
         # NOTE: change here to remove teacher forcing
         # TODO: pass flags to use internal state (no teacher forcing)
-        out, (hidden, cell) = self.decoder(input)
+        out, (hidden, cell) = self.decoder(input, detach=False)
         return out, (hidden, cell)
 
     # placeholder
