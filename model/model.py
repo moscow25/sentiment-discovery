@@ -32,7 +32,7 @@ class RNNAutoEncoderModel(nn.Module):
     def decode_out(self, input, hidden_output):
         # print(hidden_output)
         # print(hidden_output[0].size())
-        self.decoder.set_hidden(hidden_output)
+        self.decoder.set_hidden(hidden_output, detach=False)
         # NOTE: change here to remove teacher forcing
         # TODO: pass flags to use internal state (no teacher forcing)
         out, (hidden, cell) = self.decoder(input)
@@ -74,9 +74,10 @@ class RNNModel(nn.Module):
         self.nhid = nhid
         self.nlayers = nlayers
 
-    def forward(self, input, reset_mask=None):
+    def forward(self, input, reset_mask=None, detach=True):
         emb = self.drop(self.encoder(input))
-        self.rnn.detach_hidden()
+        if detach:
+            self.rnn.detach_hidden()
         # if teacher forcing off == swap here [to RNNFeaturizer...]
         output, hidden = self.rnn(emb, reset_mask=reset_mask)
         output = self.drop(output)
