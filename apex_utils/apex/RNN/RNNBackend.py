@@ -24,7 +24,7 @@ def flatten_list(tens_list):
     """
     if not ( isinstance(tens_list, tuple) or isinstance(tens_list, list) ):
         return tens_list
-    
+
     return torch.cat(tens_list, dim=0).view(len(tens_list), *tens_list[0].size() )
 
 #These modules always assumes batch_first
@@ -38,7 +38,7 @@ class bidirectionalRNN(nn.Module):
         self.fwd = stackedRNN(inputRNN, num_layers=num_layers, dropout = dropout)
         self.bckwrd = stackedRNN(inputRNN.new_like(), num_layers=num_layers, dropout = dropout)
         self.rnns = nn.ModuleList([self.fwd, self.bckwrd])
-        
+
     #collect hidden option will return all hidden/cell states from entire RNN
     def forward(self, input, collectHidden=False):
         """
@@ -46,7 +46,7 @@ class bidirectionalRNN(nn.Module):
         """
         seq_len = input.size(0)
         bsz = input.size(1)
-        
+
         fwd_out, fwd_hiddens = list(self.fwd(input, collectHidden = collectHidden))
         bckwrd_out, bckwrd_hiddens = list(self.bckwrd(input, reverse=True, collectHidden = collectHidden))
 
@@ -61,7 +61,7 @@ class bidirectionalRNN(nn.Module):
         """
         for rnn in self.rnns:
             rnn.reset_parameters()
-        
+
     def init_hidden(self, bsz):
         """
         init_hidden() stub
@@ -75,7 +75,7 @@ class bidirectionalRNN(nn.Module):
         """
         for rnn in self.rnns:
             rnn.detachHidden()
-        
+
     def reset_hidden(self, bsz):
         """
         reset_hidden() stub
@@ -83,25 +83,25 @@ class bidirectionalRNN(nn.Module):
         for rnn in self.rnns:
             rnn.reset_hidden(bsz)
 
-    def init_inference(self, bsz):    
+    def init_inference(self, bsz):
         """
         init_inference() stub
         """
         for rnn in self.rnns:
             rnn.init_inference(bsz)
 
-   
+
 #assumes hidden_state[0] of inputRNN is output hidden state
 #constructor either takes an RNNCell or list of RNN layers
-class stackedRNN(nn.Module):        
+class stackedRNN(nn.Module):
     """
     stackedRNN stub
     """
     def __init__(self, inputRNN, num_layers=1, dropout=0):
         super(stackedRNN, self).__init__()
-        
+
         self.dropout = dropout
-        
+
         if isinstance(inputRNN, RNNCell):
             self.rnns = [inputRNN]
             for i in range(num_layers-1):
@@ -111,9 +111,9 @@ class stackedRNN(nn.Module):
             self.rnns=inputRNN
         else:
             raise RuntimeError()
-        
+
         self.nLayers = len(self.rnns)
-        
+
         #for i, rnn in enumerate(self.rnns):
         #    self.add_module("rnn_layer"+str(i), self.rnns[i])
         self.rnns = nn.ModuleList(self.rnns)
@@ -131,7 +131,7 @@ class stackedRNN(nn.Module):
         """
         forward() stub
         """
-        
+
         seq_len = input.size(0)
         bsz = input.size(1)
 
@@ -141,7 +141,7 @@ class stackedRNN(nn.Module):
         #is the same with reverse or not.
 
         layer_output = []
-        
+
         if not reverse:
             for i in range(seq_len):
                 if reset_mask is not None:
@@ -173,9 +173,9 @@ class stackedRNN(nn.Module):
         '''
         layer_output = list( list(entry) for entry in zip(*layer_output) )
         hidden_states.append( layer_output )
-                
+
         for layer in range(1, self.nLayers):
-            
+
             layer_output = []
             #Grab last layers hidden states, assume first hidden state was output/input to next layer
             cur_input = hidden_states[-1][0]
@@ -204,7 +204,7 @@ class stackedRNN(nn.Module):
 
         output = hidden_states[-1][0]
         output = torch.cat(output, dim=0).view(seq_len, bsz, -1)
-        
+
         '''
         transpose hidden_states (use trick above) makes list comprehensions straight foreward
         list( [layer][hidden_states][seq_length] x Tensor([bsz][features]) )
@@ -213,7 +213,7 @@ class stackedRNN(nn.Module):
         hidden_states = list( list(entry) for entry in zip(*hidden_states) )
 
         if not collectHidden:
-            hiddens = list( list( layer[-1] for layer in hidden ) for hidden in hidden_states ) 
+            hiddens = list( list( layer[-1] for layer in hidden ) for hidden in hidden_states )
             '''
             add seq_length into tensor:
             tuple( [hidden_states][seq_length] x Tensor([bsz][features] )
@@ -228,16 +228,16 @@ class stackedRNN(nn.Module):
             we want everything returned as
             list( [hidden_states][layer] x Tensor([seq_length][bsz][features]) )
             '''
-            hiddens = list( list( flatten_list(layer) for layer in hidden ) for hidden in hidden_states ) 
+            hiddens = list( list( flatten_list(layer) for layer in hidden ) for hidden in hidden_states )
             return output, hiddens
-    
+
     def reset_parameters(self):
         """
         reset_parameters() stub
         """
         for rnn in self.rnns:
             rnn.reset_parameters()
-        
+
     def init_hidden(self, bsz):
         """
         init_hidden() stub
@@ -251,7 +251,7 @@ class stackedRNN(nn.Module):
         """
         for rnn in self.rnns:
             rnn.detach_hidden()
-        
+
     def reset_hidden(self, bsz):
         """
         reset_hidden() stub
@@ -259,15 +259,19 @@ class stackedRNN(nn.Module):
         for rnn in self.rnns:
             rnn.reset_hidden(bsz)
 
-    def init_inference(self, bsz):    
-        """ 
+    def init_inference(self, bsz):
+        """
         init_inference() stub
         """
         for rnn in self.rnns:
             rnn.init_inference(bsz)
 
+    def set_hidden(self, hidden):
+        for i, rnn in enumerate(self.rnns):
+            rnn.set_hidden(hidden[i])
+
 class RNNCell(nn.Module):
-    """ 
+    """
     RNNCell stub
     gate_multiplier is related to the architecture you're working with
     For LSTM-like it will be 4 and GRU-like will be 3.
@@ -302,7 +306,7 @@ class RNNCell(nn.Module):
         if self.bias:
             self.b_ih = nn.Parameter(torch.Tensor(self.gate_size))
             self.b_hh = nn.Parameter(torch.Tensor(self.gate_size))
-            
+
         #hidden states for forward
         self.hidden = [ None for states in range(self.n_hidden_states)]
 
@@ -314,7 +318,7 @@ class RNNCell(nn.Module):
         """
         if new_input_size is None:
             new_input_size = self.input_size
-            
+
         return type(self)(self.gate_multiplier,
                        new_input_size,
                        self.hidden_size,
@@ -323,7 +327,7 @@ class RNNCell(nn.Module):
                        self.bias,
                        self.output_size)
 
-    
+
     #Use xavier where we can (weights), otherwise use uniform (bias)
     def reset_parameters(self, gain=1):
         """
@@ -341,7 +345,7 @@ class RNNCell(nn.Module):
         if self.bias:
             self.b_ih.uniform_(-stdv/2, stdv/2)
             self.b_hh.uniform_(-stdv/2, stdv/2)
-        
+
         #for param in self.parameters():
         #    #if (param.dim() > 1):
         #    #    torch.nn.init.xavier_normal(param, gain)
@@ -367,7 +371,7 @@ class RNNCell(nn.Module):
 
                 tens = a_param.data.new(bsz, hidden_size).zero_()
                 self.hidden[i] = Variable(tens, requires_grad=False)
-        
+
     def reset_hidden(self, bsz, reset_mask=None):
         """
         reset_hidden() stub
@@ -395,7 +399,11 @@ class RNNCell(nn.Module):
                 raise RuntimeError("Must inialize hidden state before you can detach it")
         for i, _ in enumerate(self.hidden):
             self.hidden[i] = self.hidden[i].detach()
-        
+
+    def set_hidden(self, hidden):
+        for i, _ in enumerate(self.hidden):
+            self.hidden[i] = hidden[i]
+
     def forward(self, input):
         """
         forward() stub
