@@ -88,8 +88,9 @@ args = parser.parse_args()
 torch.backends.cudnn.enabled = False
 
 # initialize distributed process group and set device
-#if args.rank > 0:
-#    torch.cuda.set_device(args.rank % torch.cuda.device_count())
+if torch.cuda.is_available():
+    if args.rank > 0:
+        torch.cuda.set_device(args.rank % torch.cuda.device_count())
 
 if args.world_size > 1:
     distributed_init_file = os.path.splitext(args.save)[0]+'.distributed.dpt'
@@ -98,8 +99,10 @@ if args.world_size > 1:
 
 # Set the random seed manually for reproducibility.
 if args.seed is not -1:
-    torch.manual_seed(args.seed)
-    #torch.cuda.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(args.seed)
+    else:
+        torch.manual_seed(args.seed)
 
 if args.loss_scale != 1 and args.dynamic_loss_scale:
     raise RuntimeError("Static loss scale and dynamic loss scale cannot be used together.")
@@ -137,6 +140,9 @@ train_data, val_data, test_data = data_config.apply(args)
 ntokens = args.data_size
 #model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied)#.cuda()
 model = model.RNNAutoEncoderModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied)#.cuda()
+torch.cuda.manual_seed(args.seed):
+    print('Compiling model in CUDA mode [make sure]')
+    model = model.cuda()
 rnn_model = model
 
 if not args.no_weight_norm:
@@ -181,6 +187,9 @@ criterion = nn.CrossEntropyLoss()
 def get_batch(data):
     reset_mask_batch = data[1].long()#.cuda().long()
     data = data[0].long()#.cuda().long()
+    if torch.cuda.is_available():
+        reset_mask_batch = reset_mask_batch.cuda()
+        data = data.cuda()
     text_batch = Variable(data[:,:-1].t().contiguous(), requires_grad=False)
     target_batch = Variable(data[:,1:].t().contiguous(), requires_grad=False)
     reset_mask_batch = Variable(reset_mask_batch[:,:text_batch.size(0)].t().contiguous(), requires_grad=False)
@@ -272,7 +281,8 @@ def train(total_iters=0):
             if args.rank < 1:
                 with open(os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(total_iters),)), 'wb') as f:
                     torch.save(model.state_dict(), f)
-            #torch.cuda.synchronize()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
         total_iters += 1
 
     return cur_loss
@@ -305,7 +315,8 @@ try:
             with open(args.save, 'wb') as f:
                 torch.save(model.state_dict(), f)
             best_val_loss = val_loss
-        #torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
 
 except KeyboardInterrupt:
     print('-' * 89)
@@ -321,7 +332,8 @@ if not args.no_weight_norm and args.rank <= 0:
     with open(args.save, 'wb') as f:
         torch.save(model.state_dict(), f)
 
-#torch.cuda.synchronize()
+if torch.cuda.is_available():
+    torch.cuda.synchronize()
 
 if test_data is not None:
     # Run on test data.
