@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 from apex import RNN
+#import QRNN
 
 class RNNAutoEncoderModel(nn.Module):
     def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
@@ -47,6 +48,10 @@ class RNNAutoEncoderModel(nn.Module):
         emb = [[self.latent_hidden_transform(emb[0][0]), self.latent_cell_transform(emb[1][0])]]
         return emb
 
+# Placeholder QRNN wrapper -- to support detach/reset/init RNN state
+#class myQRNN(QRNN):
+#    def __init__(self, *input, **kwargs):
+#        super(myQRNN, self).__init__(*input, **kwargs)
 
 class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
@@ -56,6 +61,7 @@ class RNNModel(nn.Module):
         self.drop = nn.Dropout(dropout)
         self.encoder = nn.Embedding(ntoken, ninp)
         self.decoder = nn.Linear(nhid, ntoken)
+        #self.rnn=getattr(myQRNN, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
         self.rnn=getattr(RNN, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
 
         # Optionally tie weights as in:

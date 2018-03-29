@@ -140,7 +140,7 @@ train_data, val_data, test_data = data_config.apply(args)
 ntokens = args.data_size
 #model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied)#.cuda()
 model = model.RNNAutoEncoderModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied)#.cuda()
-torch.cuda.manual_seed(args.seed):
+if torch.cuda.is_available():
     print('Compiling model in CUDA mode [make sure]')
     model = model.cuda()
 rnn_model = model
