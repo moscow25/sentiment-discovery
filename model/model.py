@@ -5,6 +5,14 @@ from torch.autograd import Variable
 from apex import RNN
 #import QRNN
 
+def sample(out, temperature):
+    if temperature == 0:
+        char_idx = torch.max(out.squeeze().data, 0)[1]
+    else:
+        char_weights = out.float().squeeze().data.div(args.temperature).exp().cpu()
+        char_idx = torch.multinomial(char_weights, 1)
+    return char_idx
+
 class RNNAutoEncoderModel(nn.Module):
     def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
         super(RNNAutoEncoderModel, self).__init__()
@@ -47,6 +55,27 @@ class RNNAutoEncoderModel(nn.Module):
         # TODO -- add possible transformation?
         emb = [[self.latent_hidden_transform(emb[0][0]), self.latent_cell_transform(emb[1][0])]]
         return emb
+
+    def get_text_from_outputs(self, out):
+        """
+        autoencoder = RNNAutoEncoder(...)
+        out = autoencoder(batch)
+        encoder_text, decoder_text = autoencoder.get_text_from_outputs(out)
+        # each consists of batch_size number of strings with the text produced from the model
+        """
+        encoder_outs = out[0][0]
+        decoder_outs = out[1][0]
+        batch_size = encoder_outs.size(1)
+        seq_len = encoder_outs.size(0)
+        encoder_text = ['']*batch_size
+        decoder_text = ['']*batch_size
+        for t in range(seq_len):
+            encoder_chars = sample(encoder_outs[t])
+            decoder_chars = sample(decoder_outs[t])
+            for b in range(batch_size):
+                encoder_text[b].append(chr(encoder_chars[b].item()))
+                decoder_text[b].append(chr(decoder_chars[b].item()))
+        return encoder_text, decoder_text
 
 # Placeholder QRNN wrapper -- to support detach/reset/init RNN state
 #class myQRNN(QRNN):
