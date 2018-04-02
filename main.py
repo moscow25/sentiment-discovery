@@ -279,6 +279,8 @@ def train(total_iters=0):
         # save current model progress. If distributed only save from worker 0
         if args.save_iters and total_iters % (args.save_iters) == 0 and total_iters > 0 and args.rank < 1:
             if args.rank < 1:
+                fname = os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(total_iters),))
+                print('saving model to %s' % fname)
                 with open(os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(total_iters),)), 'wb') as f:
                     torch.save(model.state_dict(), f)
             if torch.cuda.is_available():
