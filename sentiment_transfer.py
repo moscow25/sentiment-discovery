@@ -140,7 +140,7 @@ if __name__ == '__main__':
 
 	# featurize data with neurons
 	print('collecting features')
-	if not os.path.isfile('trXt.npy'):
+	if True or not os.path.isfile('trXt.npy'):
 		print('featurizing data')
 		trXt = None
 		if trX is not None:
