@@ -5,11 +5,11 @@ from torch.autograd import Variable
 from apex import RNN
 #import QRNN
 
-def sample(out, temperature):
+def sample(out, temperature=0.1):
     if temperature == 0:
         char_idx = torch.max(out.squeeze().data, 0)[1]
     else:
-        char_weights = out.float().squeeze().data.div(args.temperature).exp().cpu()
+        char_weights = out.float().squeeze().data.div(temperature).exp().cpu()
         char_idx = torch.multinomial(char_weights, 1)
     return char_idx
 
@@ -71,8 +71,8 @@ class RNNAutoEncoderModel(nn.Module):
         encoder_text, decoder_text = autoencoder.get_text_from_outputs(out)
         # each consists of batch_size number of strings with the text produced from the model
         """
-        encoder_outs = out[0][0]
-        decoder_outs = out[1][0]
+        encoder_outs = out[0]
+        decoder_outs = out[1]
         batch_size = encoder_outs.size(1)
         seq_len = encoder_outs.size(0)
         encoder_text = ['']*batch_size
@@ -81,8 +81,8 @@ class RNNAutoEncoderModel(nn.Module):
             encoder_chars = sample(encoder_outs[t])
             decoder_chars = sample(decoder_outs[t])
             for b in range(batch_size):
-                encoder_text[b].append(chr(encoder_chars[b].item()))
-                decoder_text[b].append(chr(decoder_chars[b].item()))
+                encoder_text[b] += chr(encoder_chars[b])
+                decoder_text[b] += chr(decoder_chars[b])
         return encoder_text, decoder_text
 
 # Placeholder QRNN wrapper -- to support detach/reset/init RNN state
