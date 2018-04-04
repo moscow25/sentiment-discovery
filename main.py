@@ -138,8 +138,8 @@ train_data, val_data, test_data = data_config.apply(args)
 ###############################################################################
 
 ntokens = args.data_size
-#model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied)#.cuda()
-model = model.RNNAutoEncoderModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied)#.cuda()
+#model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied)
+model = model.RNNAutoEncoderModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied)
 if torch.cuda.is_available():
     print('Compiling model in CUDA mode [make sure]')
     model = model.cuda()
@@ -185,8 +185,8 @@ criterion = nn.CrossEntropyLoss()
 # shard reset mask of the same dimensions is also returned.
 
 def get_batch(data):
-    reset_mask_batch = data[1].long()#.cuda().long()
-    data = data[0].long()#.cuda().long()
+    reset_mask_batch = data[1].long()
+    data = data[0].long()
     if torch.cuda.is_available():
         reset_mask_batch = reset_mask_batch.cuda()
         data = data.cuda()
@@ -226,6 +226,18 @@ def train(total_iters=0):
         data, targets, reset_mask = get_batch(batch)
         #output, hidden = model(data, reset_mask=reset_mask)
         output_enc, output_dec = model(data, reset_mask=reset_mask)
+
+        if i % 200 == 0:
+            #print('Got batch outputs -- attempting to generate text')
+            # out = autoencoder(batch)
+            # encoder_text, decoder_text = autoencoder.get_text_from_outputs(out)
+            encoder_text, decoder_text = model.get_text_from_outputs((output_enc, output_dec))
+            print('------\nEncoder, decoder text:')
+            print(len(encoder_text))
+            print('\n'.join(encoder_text[:5]))
+            print('-------')
+            print('\n'.join(decoder_text[:5]))
+
         #loss = criterion(output.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
         loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
         loss_dec = criterion(output_dec.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
