@@ -13,15 +13,23 @@ def sample(out, temperature):
         char_idx = torch.multinomial(char_weights, 1)
     return char_idx
 
+def tie_params(module_src, module_dst):
+    
+    for name, p in module_src._parameters.items():
+        setattr(module_dst, name, p)
+    for mname, module in module_src._modules.items():
+        tie_params(module, getattr(module_dst, mname))
+
 class RNNAutoEncoderModel(nn.Module):
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=True):
         super(RNNAutoEncoderModel, self).__init__()
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
-            nlayers=nlayers, dropout=dropout, tie_weights=tie_weights)
+            nlayers=nlayers, dropout=dropout)
         self.decoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
-            nlayers=nlayers, dropout=dropout, tie_weights=tie_weights)
+            nlayers=nlayers, dropout=dropout)
         # Parameters from first to second.
-        self.decoder.load_state_dict(self.encoder.state_dict())
+        if tie_weights:
+            tie_params(self.encoder, self.decoder)
 
         # Transform final hidden state (TanH so that it's in bounds)
         self.latent_hidden_transform = nn.Sequential(nn.Linear(nhid, nhid), nn.Tanh())
