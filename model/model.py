@@ -25,21 +25,24 @@ class RNNAutoEncoderModel(nn.Module):
         super(RNNAutoEncoderModel, self).__init__()
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
             nlayers=nlayers, dropout=dropout)
-        self.decoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
-            nlayers=nlayers, dropout=dropout)
         # Parameters from first to second.
         if tie_weights:
-            tie_params(self.encoder, self.decoder)
-
+            object.__setattr__(self, 'decoder', self.encoder)
+#            del self._modules['decoder']
+#            tie_params(self.encoder, self.decoder)
+        else:
+            self.decoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
+                nlayers=nlayers, dropout=dropout)
         # Transform final hidden state (TanH so that it's in bounds)
         self.latent_hidden_transform = nn.Sequential(nn.Linear(nhid, nhid), nn.Tanh())
         # Transform cell state [maybe not necessary]
         self.latent_cell_transform = nn.Linear(nhid, nhid)
 
     def forward(self, input, reset_mask=None):
-        encoder_output, emb = self.encode_in(input)
-        emb = self.process_emb(emb)
+        encoder_output, encoder_hidden = self.encode_in(input)
+        emb = self.process_emb(encoder_hidden)
         decoder_output, decoder_hidden = self.decode_out(input, emb)
+        self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
         return encoder_output, decoder_output
 
     def encode_in(self, input):
