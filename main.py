@@ -81,6 +81,8 @@ data_parser.add_argument('--val_shards', type=int, default=0,
                          help="""number of shards for validation dataset if validation set is specified and not split from training""")
 data_parser.add_argument('--test_shards', type=int, default=0,
                          help="""number of shards for test dataset if test set is specified and not split from training""")
+data_parser.add_argument('--temperature', type=float, default=0,
+                         help="""sampling temperature to use during generation""")
 
 
 args = parser.parse_args()
@@ -207,9 +209,14 @@ def evaluate(data_source):
     with torch.no_grad():
         for i, batch in enumerate(data_source):
             data, targets, reset_mask = get_batch(batch)
-            output, hidden = model(data, reset_mask=reset_mask)
-            output_flat = output.view(-1, ntokens).contiguous().float()
-            total_loss += criterion(output_flat, targets.view(-1).contiguous()).data[0]
+            output_enc, output_dec = model(data, reset_mask=reset_mask)
+            loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
+            loss_dec = criterion(output_dec.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
+            w_enc, w_dec = 0.6, 0.4
+            loss = w_enc * loss_enc + w_dec * loss_dec
+#            output_flat = output.view(-1, ntokens).contiguous().float()
+            total_loss += loss.data[0]
+#            total_loss += criterion(output_flat, targets.view(-1).contiguous()).data[0]
     return total_loss / max(len(data_source), 1)
 
 def train(total_iters=0):
@@ -231,7 +238,7 @@ def train(total_iters=0):
             #print('Got batch outputs -- attempting to generate text')
             # out = autoencoder(batch)
             # encoder_text, decoder_text = autoencoder.get_text_from_outputs(out)
-            encoder_text, decoder_text = model.get_text_from_outputs((output_enc, output_dec))
+            encoder_text, decoder_text = rnn_model.get_text_from_outputs((output_enc, output_dec), temperature=args.temperature)
             print('------\nEncoder, decoder text:')
             print(len(encoder_text))
             print('\n'.join(encoder_text[:5]))

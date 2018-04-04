@@ -5,7 +5,7 @@ from torch.autograd import Variable
 from apex import RNN
 #import QRNN
 
-def sample(out, temperature=0.1):
+def sample(out, temperature=0):
     if temperature == 0:
         char_idx = torch.max(out.squeeze().data, 0)[1]
     else:
@@ -64,7 +64,7 @@ class RNNAutoEncoderModel(nn.Module):
         emb = [[self.latent_hidden_transform(emb[0][0]), self.latent_cell_transform(emb[1][0])]]
         return emb
 
-    def get_text_from_outputs(self, out):
+    def get_text_from_outputs(self, out, temperature=0):
         """
         autoencoder = RNNAutoEncoder(...)
         out = autoencoder(batch)
@@ -78,8 +78,8 @@ class RNNAutoEncoderModel(nn.Module):
         encoder_text = ['']*batch_size
         decoder_text = ['']*batch_size
         for t in range(seq_len):
-            encoder_chars = sample(encoder_outs[t])
-            decoder_chars = sample(decoder_outs[t])
+            encoder_chars = sample(encoder_outs[t], temperature=temperature)
+            decoder_chars = sample(decoder_outs[t], temperature=temperature)
             for b in range(batch_size):
                 encoder_text[b] += chr(encoder_chars[b])
                 decoder_text[b] += chr(decoder_chars[b])
