@@ -402,9 +402,9 @@ class RNNCell(nn.Module):
 
     def set_hidden(self, hidden):
         for i, _ in enumerate(self.hidden):
-            hid = hidden[i]
-            if len(self.hidden[i].size()) != len(hid.size()):
-                hid = hid.squeeze()
+            hid = hidden[i].view(-1, self.hidden_size)
+            #if len(self.hidden[i].size()) != len(hid.size()):
+            #    hid = hid.squeeze()
             self.hidden[i] = hid
 
     def forward(self, input):
