@@ -42,6 +42,8 @@ parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='report interval')
 parser.add_argument('--save', type=str,  default='lang_model.pt',
                     help='path to save the final model')
+parser.add_argument('--load', type=str,
+                    help='path to a previously saved model checkpoint')
 parser.add_argument('--save_iters', type=int, default=2000, metavar='N',
                     help='save current model progress interval')
 parser.add_argument('--fp16', action='store_true',
@@ -146,6 +148,15 @@ if torch.cuda.is_available():
     print('Compiling model in CUDA mode [make sure]')
     model = model.cuda()
 rnn_model = model
+
+if args.load != '':
+    sd = torch.load(args.load)
+    try:
+        model.load_state_dict(sd)
+    except:
+        apply_weight_norm(model.rnn, hook_child=False)
+        model.load_state_dict(sd)
+        remove_weight_norm(model.rnn)
 
 if not args.no_weight_norm:
     apply_weight_norm(model.encoder.rnn, hook_child=False)
