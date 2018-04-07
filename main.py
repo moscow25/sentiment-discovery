@@ -245,16 +245,17 @@ def train(total_iters=0):
         #output, hidden = model(data, reset_mask=reset_mask)
         output_enc, output_dec = model(data, reset_mask=reset_mask)
 
-        if i % 200 == 0:
+        if i > 0 and i % 200 == 0:
             #print('Got batch outputs -- attempting to generate text')
             # out = autoencoder(batch)
             # encoder_text, decoder_text = autoencoder.get_text_from_outputs(out)
             encoder_text, decoder_text = rnn_model.get_text_from_outputs((output_enc, output_dec), temperature=args.temperature)
+            print('------\nActual text:')
+            print('\n'.join([''.join([chr(c) for c in list(targets[:,l].cpu().numpy())]) for l in range(5)]))
             print('------\nEncoder, decoder text:')
-            print(len(encoder_text))
-            print('\n'.join(encoder_text[:5]))
+            print('\n'.join([''.join(text) for text in encoder_text[:5]]).encode('utf-8').decode('ascii','backslashreplace'))
             print('-------')
-            print('\n'.join(decoder_text[:5]))
+            print('\n'.join([''.join(text) for text in decoder_text[:5]]).encode('utf-8').decode('ascii','backslashreplace'))
 
         #loss = criterion(output.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
         loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())

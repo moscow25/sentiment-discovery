@@ -26,7 +26,8 @@ class RNNAutoEncoderModel(nn.Module):
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
             nlayers=nlayers, dropout=dropout)
         # Parameters from first to second.
-        if tie_weights:
+        self.tied = tie_weights
+        if self.tied:
             object.__setattr__(self, 'decoder', self.encoder)
 #            del self._modules['decoder']
 #            tie_params(self.encoder, self.decoder)
@@ -87,6 +88,26 @@ class RNNAutoEncoderModel(nn.Module):
                 encoder_text[b] += chr(encoder_chars[b])
                 decoder_text[b] += chr(decoder_chars[b])
         return encoder_text, decoder_text
+
+    def state_dict(self, destination=None, prefix='', keep_vars=False):
+        sd = {}
+        if destination is not None:
+            sd = destination
+        sd['encoder'] = self.encoder.state_dict(sd, prefix, keep_vars)
+        if self.tied:
+            sd['decoder'] = self.encoder
+        else:
+            sd['decoder'] = self.decoder.state_dict(sd, prefix, keep_vars)
+        sd['hidden_transform'] = self.latent_hidden_transform.state_dict(sd, prefix, keep_vars)
+        sd['cell_transform'] = self.latent_cell_transform.state_dict(sd, prefix, keep_vars)
+        return sd
+
+    def load_state_dict(self, sd, strict=True):
+        self.encoder.load_state_dict(sd['encoder'], strict)
+        if not self.tied:
+            self.decoder.load_state_dict(sd['decoder'], strict)
+        self.latent_hidden_transform.load_state_dict(sd['hidden_transform'], strict)
+        self.latent_cell_transform.load_state_dict(sd['cell_transform'], strict)
 
 # Placeholder QRNN wrapper -- to support detach/reset/init RNN state
 #class myQRNN(QRNN):
