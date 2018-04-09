@@ -30,13 +30,12 @@ class RNNAutoEncoderModel(nn.Module):
             nlayers=nlayers, dropout=dropout)
         # Parameters from first to second.
         self.tied = tie_weights
-        decoder = RNNDecoder(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
-            nlayers=nlayers, dropout=dropout, transfer_model=self.encoder if self.tied else None)
+
         if self.tied:
-            object.__setattr__(self, 'decoder', decoder)
-#            del self._modules['decoder']
-#            tie_params(self.encoder, self.decoder)
+            object.__setattr__(self, 'decoder', self.encoder)
         else:
+            decoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
+            nlayers=nlayers, dropout=dropout)
             self.decoder = decoder
         # Transform final hidden state (TanH so that it's in bounds)
         self.latent_hidden_transform = nn.Sequential(nn.Linear(nhid, nhid), nn.Tanh())
@@ -64,7 +63,7 @@ class RNNAutoEncoderModel(nn.Module):
         self.decoder.set_hidden(hidden_output)
         # NOTE: change here to remove teacher forcing
         # TODO: pass flags to use internal state (no teacher forcing)
-        out, (hidden, cell) = self.decoder(input, detach=False, reset_mask=reset_mask, temperature=temperature)
+        out, (hidden, cell) = self.decoder(input, detach=False, reset_mask=reset_mask)
         return out, (hidden, cell)
 
     # placeholder
