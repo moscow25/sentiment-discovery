@@ -21,8 +21,9 @@ def tie_params(module_src, module_dst):
         tie_params(module, getattr(module_dst, mname))
 
 class RNNAutoEncoderModel(nn.Module):
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=True):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=True, freeze=False):
         super(RNNAutoEncoderModel, self).__init__()
+        self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
             nlayers=nlayers, dropout=dropout)
         # Parameters from first to second.
@@ -40,7 +41,11 @@ class RNNAutoEncoderModel(nn.Module):
         self.latent_cell_transform = nn.Linear(nhid, nhid)
 
     def forward(self, input, reset_mask=None):
-        encoder_output, encoder_hidden = self.encode_in(input)
+        if self.freeze:
+            with torch.no_grad():
+                encoder_output, encoder_hidden = self.encode_in(input)
+        else:
+            encoder_output, encoder_hidden = self.encode_in(input)
         emb = self.process_emb(encoder_hidden)
         decoder_output, decoder_hidden = self.decode_out(input, emb)
         self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
@@ -168,6 +173,40 @@ class RNNModel(nn.Module):
     def set_hidden(self, hidden):
         self.rnn.set_hidden(hidden)
 
+class RNNDecoder(nn.Module):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, all_layers=False, teacher_force=True, attention=False):
+        super(RNNDecoder, self).__init__()
+        self.drop = nn.Dropout(dropout)
+        self.encoder = nn.Embedding(ntoken, ninp)
+        self.rnn=getattr(RNN, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
+
+        self.rnn_type = rnn_type
+        self.nhid = nhid
+        self.nlayers = nlayers
+        self.all_layers = all_layers
+        self.output_size = self.nhid if not self.all_layers else self.nhid * self.nlayers
+
+        self.attention = attention
+
+        self.teacher_force = teacher_force
+
+    def forward(self, input, reset_mask=None, context=None):
+        self.rnn.detach_hidden()
+        last_cell = 0
+        last_hidden = 0
+        for i in range(input.size(0)):
+            emb = self.drop(self.encoder(input[i]))
+            _, hidden = self.rnn(emb.unsqueeze(0), collectHidden=True)
+            cell = self.get_features(hidden)
+            hidden = self.get_features(hidden, get_hidden=True)
+            if i > 0:
+                cell = get_valid_outs(i, seq_len, cell, last_cell)
+                hidden = get_valid_outs(i, seq_len, hidden, last_hidden)
+            last_cell = cell
+            last_hidden = hidden
+
+        return cell
+
 class RNNFeaturizer(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
@@ -183,27 +222,34 @@ class RNNFeaturizer(nn.Module):
         self.all_layers = all_layers
         self.output_size = self.nhid if not self.all_layers else self.nhid * self.nlayers
 
-    def forward(self, input, seq_len=None):
+    def forward(self, input, seq_len=None, get_hidden=False):
         self.rnn.detach_hidden()
         if seq_len is None:
             for i in range(input.size(0)):
                 emb = self.drop(self.encoder(input[i]))
                 _, hidden = self.rnn(emb.unsqueeze(0), collectHidden=True)
-            cell = self.get_cell_features(hidden)
+            cell = self.get_features(hidden)
+            if get_hidden:
+                cell = (self.get_features(hidden, get_hidden=True), cell)
         else:
             last_cell = 0
+            last_hidden = 0
             for i in range(input.size(0)):
-                # encodes next character [teacher forcing]
                 emb = self.drop(self.encoder(input[i]))
-                # TODO: Run RNN on next gen character?
-                logits, hidden = self.rnn(emb.unsqueeze(0), collectHidden=True)
-                cell = self.get_cell_features(hidden)
+                _, hidden = self.rnn(emb.unsqueeze(0), collectHidden=True)
+                cell = self.get_features(hidden)
+                if get_hidden:
+                    hidden = self.get_features(hidden, get_hidden=True)
                 if i > 0:
                     cell = get_valid_outs(i, seq_len, cell, last_cell)
+                    if get_hidden:
+                        hidden = get_valid_outs(i, seq_len, hidden, last_hidden)
                 last_cell = cell
-                # Call sample(logits, temp)
-                # current_ch = max(logits, -1)
-                # Instead of input[i]
+                if get_hidden:
+                    last_hidden = hidden
+            if get_hidden:
+                cell = (hidden, cell)
+
         return cell
 
     def get_cell_features(self, hidden):
