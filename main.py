@@ -154,12 +154,16 @@ if args.load != '':
     try:
         model.load_state_dict(sd)
     except:
-        apply_weight_norm(model.rnn, hook_child=False)
+        apply_weight_norm(model.encoder.rnn, hook_child=False)
+        if not args.tied:
+            apply_weight_norm(model.decoder.rnn, hook_child=False)
         model.load_state_dict(sd)
-        remove_weight_norm(model.rnn)
+        remove_weight_norm(model)
 
 if not args.no_weight_norm:
     apply_weight_norm(model.encoder.rnn, hook_child=False)
+    if not args.tied:
+        apply_weight_norm(model.decoder.rnn, hook_child=False)
 
 # create optimizer and fp16 models
 if args.fp16:
