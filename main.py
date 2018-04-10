@@ -35,7 +35,13 @@ parser.add_argument('--epochs', type=int, default=1,
 parser.add_argument('--dropout', type=float, default=0.0,
                     help='dropout applied to layers (0 = no dropout)')
 parser.add_argument('--tied', action='store_true',
-                    help='tie the word embedding and softmax weights')
+                    help='tie the encoder to the decoder parameters')
+parser.add_argument('--freeze', action='store_true',
+                    help='freeze the encoder weights')
+parser.add_argument('--no_force', action='store_true',
+                    help='No teacher forcing. Use temperature to sample from output distribution')
+parser.add_argument('--attention', action='store_true',
+                    help='use highway attention between final encoder state and decoder')
 parser.add_argument('--seed', type=int, default=-1,
                     help='random seed')
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
@@ -143,7 +149,7 @@ train_data, val_data, test_data = data_config.apply(args)
 
 ntokens = args.data_size
 #model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied)
-model = model.RNNAutoEncoderModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied)
+model = model.RNNAutoEncoderModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied, freeze=args.freeze, teacher_force=not args.no_force, attention=args.attention)
 if torch.cuda.is_available():
     print('Compiling model in CUDA mode [make sure]')
     model = model.cuda()
@@ -247,7 +253,7 @@ def train(total_iters=0):
 
         data, targets, reset_mask = get_batch(batch)
         #output, hidden = model(data, reset_mask=reset_mask)
-        output_enc, output_dec = model(data, reset_mask=reset_mask)
+        output_enc, output_dec = model(data, reset_mask=reset_mask, temperature=args.temperature)
 
         if i > 0 and i % 200 == 0:
             #print('Got batch outputs -- attempting to generate text')
@@ -273,6 +279,7 @@ def train(total_iters=0):
             optim.backward(loss)
         else:
             loss.backward()
+    #    print('backward')
         total_loss += loss.data.float()
         total_enc_loss += loss_enc.data.float()
         total_dec_loss += loss_dec.data.float()

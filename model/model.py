@@ -21,7 +21,7 @@ def tie_params(module_src, module_dst):
         tie_params(module, getattr(module_dst, mname))
 
 class RNNAutoEncoderModel(nn.Module):
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=True, freeze=False):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=True, freeze=False, teacher_force=True, attention=False):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
@@ -29,7 +29,8 @@ class RNNAutoEncoderModel(nn.Module):
         # Parameters from first to second.
         self.tied = tie_weights
         decoder = RNNDecoder(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
-            nlayers=nlayers, dropout=dropout, transfer_model=self.encoder if self.tied else None)
+            nlayers=nlayers, dropout=dropout, teacher_force=teacher_force, attention=attention,
+            transfer_model=self.encoder if self.tied else None)
         if self.tied:
             object.__setattr__(self, 'decoder', decoder)
 #            del self._modules['decoder']
@@ -62,7 +63,7 @@ class RNNAutoEncoderModel(nn.Module):
         self.decoder.set_hidden(hidden_output)
         # NOTE: change here to remove teacher forcing
         # TODO: pass flags to use internal state (no teacher forcing)
-        out, (hidden, cell) = self.decoder(input, detach=False, reset_mask=reset_mask, temperature=temperature)
+        out, (hidden, cell) = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1], temperature=temperature)
         return out, (hidden, cell)
 
     # placeholder
