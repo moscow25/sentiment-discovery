@@ -5,8 +5,10 @@ from torch.autograd import Variable
 from apex import RNN
 #import QRNN
 
-def sample(out, temperature=0):
+def sample(out, temperature=0.1):
+    # Temperature == 0 is broken [all results in 0-32 space, no printable characters. Use low temp > 0.]
     if temperature == 0:
+        print('WARNING: Temp=0 is broken. Will not return correct results')
         char_idx = torch.max(out.squeeze().data, 0)[1]
     else:
         char_weights = out.float().squeeze().data.div(temperature).exp().cpu()
@@ -14,7 +16,7 @@ def sample(out, temperature=0):
     return char_idx
 
 def tie_params(module_src, module_dst):
-    
+
     for name, p in module_src._parameters.items():
         setattr(module_dst, name, p)
     for mname, module in module_src._modules.items():
@@ -33,9 +35,10 @@ class RNNAutoEncoderModel(nn.Module):
             transfer_model=self.encoder if self.tied else None)
         if self.tied:
             object.__setattr__(self, 'decoder', decoder)
-#            del self._modules['decoder']
-#            tie_params(self.encoder, self.decoder)
+            #object.__setattr__(self, 'decoder', self.encoder)
         else:
+#            decoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
+#            nlayers=nlayers, dropout=dropout)
             self.decoder = decoder
         # Transform final hidden state (TanH so that it's in bounds)
         self.latent_hidden_transform = nn.Sequential(nn.Linear(nhid, nhid), nn.Tanh())

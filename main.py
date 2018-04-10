@@ -89,8 +89,8 @@ data_parser.add_argument('--val_shards', type=int, default=0,
                          help="""number of shards for validation dataset if validation set is specified and not split from training""")
 data_parser.add_argument('--test_shards', type=int, default=0,
                          help="""number of shards for test dataset if test set is specified and not split from training""")
-data_parser.add_argument('--temperature', type=float, default=0,
-                         help="""sampling temperature to use during generation""")
+data_parser.add_argument('--temperature', type=float, default=0.1,
+                         help="""sampling temperature to use during generation -- NOTE: temp=0 broken""")
 
 
 args = parser.parse_args()
@@ -156,10 +156,14 @@ if torch.cuda.is_available():
 rnn_model = model
 
 if args.load != '':
-    sd = torch.load(args.load)
+    sd = torch.load(args.load, map_location=lambda storage, loc: storage)
+    #sd = torch.load(args.load)
     try:
+        print('try load w/o weightnorm')
         model.load_state_dict(sd)
+        print('load w/o weightnorm success')
     except:
+        print('try with weight norm')
         apply_weight_norm(model.encoder.rnn, hook_child=False)
         if not args.tied:
             apply_weight_norm(model.decoder.rnn, hook_child=False)
@@ -221,6 +225,13 @@ def get_batch(data):
 def init_hidden(batch_size):
     return rnn_model.encoder.rnn.init_hidden(args.batch_size)
 
+# Return printable part of the string.
+def cleanup_text(text):
+    t = text.replace('\n', ' ')
+    t = t.replace('\r', ' ')
+    t = t.replace('\t', ' ')
+    return ''.join(x for x in t if (31 < ord(x) < 127))
+
 def evaluate(data_source):
     # Turn on evaluation mode which disables dropout.
     model.eval()
@@ -255,17 +266,14 @@ def train(total_iters=0):
         #output, hidden = model(data, reset_mask=reset_mask)
         output_enc, output_dec = model(data, reset_mask=reset_mask, temperature=args.temperature)
 
-        if i > 0 and i % 200 == 0:
-            #print('Got batch outputs -- attempting to generate text')
-            # out = autoencoder(batch)
-            # encoder_text, decoder_text = autoencoder.get_text_from_outputs(out)
+        if i % 200 == 10:
             encoder_text, decoder_text = rnn_model.get_text_from_outputs((output_enc, output_dec), temperature=args.temperature)
             print('------\nActual text:')
-            print('\n'.join([''.join([chr(c) for c in list(targets[:,l].cpu().numpy())]) for l in range(5)]))
+            print('\n'.join([''.join([chr(c) for c in list(targets[:,l].data.cpu().numpy())]) for l in range(5)]))
             print('------\nEncoder, decoder text:')
-            print('\n'.join([''.join(text) for text in encoder_text[:5]]).encode('utf-8').decode('ascii','backslashreplace'))
+            print('\n'.join([''.join(cleanup_text(text)) for text in encoder_text[:5]]).encode('utf-8').decode('ascii','backslashreplace'))
             print('-------')
-            print('\n'.join([''.join(text) for text in decoder_text[:5]]).encode('utf-8').decode('ascii','backslashreplace'))
+            print('\n'.join([''.join(cleanup_text(text)) for text in decoder_text[:5]]).encode('utf-8').decode('ascii','backslashreplace'))
 
         #loss = criterion(output.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
         loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
