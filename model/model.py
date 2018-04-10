@@ -5,13 +5,15 @@ from torch.autograd import Variable
 from apex import RNN
 #import QRNN
 
-def sample(out, temperature=0.1):
+def sample(out, temperature=0.1, cpu=False):
     # Temperature == 0 is broken [all results in 0-32 space, no printable characters. Use low temp > 0.]
     if temperature == 0:
         print('WARNING: Temp=0 is broken. Will not return correct results')
         char_idx = torch.max(out.squeeze().data, 0)[1]
     else:
-        char_weights = out.float().squeeze().data.div(temperature).exp().cpu()
+        char_weights = out.float().squeeze().data.div(temperature).exp()
+        if cpu:
+            char_weights = char_weights.cpu()
         char_idx = torch.multinomial(char_weights, 1)
     return char_idx
 
@@ -76,6 +78,7 @@ class RNNAutoEncoderModel(nn.Module):
         #emb = [[emb[0][0], emb[1][0]]]
         # TODO -- add possible transformation?
         emb = [[self.latent_hidden_transform(emb[0][0]), self.latent_cell_transform(emb[1][0])]]
+ #       emb[0][1].register_hook(lambda x:print('hooked2'))
         return emb
 
     def get_text_from_outputs(self, out, temperature=0):
@@ -92,8 +95,8 @@ class RNNAutoEncoderModel(nn.Module):
         encoder_text = ['']*batch_size
         decoder_text = ['']*batch_size
         for t in range(seq_len):
-            encoder_chars = sample(encoder_outs[t], temperature=temperature)
-            decoder_chars = sample(decoder_outs[t], temperature=temperature)
+            encoder_chars = sample(encoder_outs[t], temperature=temperature, cpu=True)
+            decoder_chars = sample(decoder_outs[t], temperature=temperature, cpu=True)
             for b in range(batch_size):
                 encoder_text[b] += chr(encoder_chars[b])
                 decoder_text[b] += chr(decoder_chars[b])
@@ -203,24 +206,38 @@ class RNNDecoder(nn.Module):
 
     def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0):
         if detach:
+            #print('detach')
             self.rnn.detach_hidden()
         outs = []
-        for i in range(input.size(0)):
+        context = context.view(1,context.size(-2), context.size(-1))
+        seq_len = input.size(0)
+        for i in range(seq_len):
             if self.teacher_force or i == 0:
                 x = input[i]
+#                print(x.size())
             else:
-                x = sample(out, temperature)
+#                print(i)
+                x = sample(out, temperature).squeeze()
+#                print(x)
             emb = self.drop(self.encoder(x))
+#            if i>=seq_len-2:
+                #print('rnn_hook', len(self.rnn._backward_hooks))
             _, hidden = self.rnn(emb.unsqueeze(0), reset_mask=reset_mask[i])
+#            if i>=seq_len-2:
+#                hidden[1].register_hook(lambda x: print('hook3'))
+#                print(hidden[1].size())
             cell = hidden[0]
-            decoder_in = hidden = hidden[1]
-            decoder_in = decoder_in.view(-1, self.nhid).contiguous()
+            hidden = hidden[1]
+            decoder_in = hidden
+            #decoder_in = decoder_in.view(-1, self.nhid).contiguous()
             if self.attention:
                 assert context is not None
                 decoder_in = decoder_in * context
             out = self.decoder(decoder_in)
             outs.append(out)
-        outs = torch.stack(outs)
+        outs = torch.cat(outs)
+#        outs = torch.stack(outs)
+#        outs.register_hook(lambda x:print('hooked'))
         return outs, (cell, hidden)
 
     def state_dict(self, destination=None, prefix='', keep_vars=False):

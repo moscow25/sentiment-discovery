@@ -154,6 +154,7 @@ if torch.cuda.is_available():
     print('Compiling model in CUDA mode [make sure]')
     model = model.cuda()
 rnn_model = model
+#print(model._modules)
 
 if args.load != '':
     sd = torch.load(args.load, map_location=lambda storage, loc: storage)
@@ -171,9 +172,9 @@ if args.load != '':
         remove_weight_norm(model)
 
 if not args.no_weight_norm:
-    apply_weight_norm(model.encoder.rnn, hook_child=False)
+    apply_weight_norm(model.encoder.rnn, hook_child=True)
     if not args.tied:
-        apply_weight_norm(model.decoder.rnn, hook_child=False)
+        apply_weight_norm(model.decoder.rnn, hook_child=True)
 
 # create optimizer and fp16 models
 if args.fp16:
@@ -287,7 +288,6 @@ def train(total_iters=0):
             optim.backward(loss)
         else:
             loss.backward()
-    #    print('backward')
         total_loss += loss.data.float()
         total_enc_loss += loss_enc.data.float()
         total_dec_loss += loss_dec.data.float()
@@ -310,14 +310,15 @@ def train(total_iters=0):
                 LR.step()
 
         if i % args.log_interval == 0:
-            cur_loss = total_loss[0] / args.log_interval
-            cur_enc_loss = total_enc_loss[0] / args.log_interval
-            cur_dec_loss = total_dec_loss[0] / args.log_interval
+            log_interval = args.log_interval if i!=0 else 1
+            cur_loss = total_loss.item() / log_interval
+            cur_enc_loss = total_enc_loss.item() / log_interval
+            cur_dec_loss = total_dec_loss.item() / log_interval
             elapsed = time.time() - start_time
             print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:.2E} | ms/batch {:.3E} | \
                   loss_enc {:.2E} | loss_dec {:.2E} | ppl {:8.2f}'.format(
                       epoch, i, len(train_data), lr,
-                      elapsed * 1000 / args.log_interval, cur_enc_loss, cur_dec_loss, math.exp(min(cur_loss, 20)),
+                      elapsed * 1000 / log_interval, cur_enc_loss, cur_dec_loss, math.exp(min(cur_loss, 20)),
                       #float(args.loss_scale) if not args.fp16 else optim.loss_scale,
                   )
             )

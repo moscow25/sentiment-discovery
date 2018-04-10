@@ -1,6 +1,9 @@
 import torch
 from torch.nn.parameter import Parameter
 import sys
+
+i = 1
+
 class Reparameterization(object):
     """
     Class interface for performing weight reparameterizations
@@ -74,6 +77,9 @@ class Reparameterization(object):
         weight = getattr(module2use, name2use)
         if weight.dim() <= 1:
             return
+        global i
+        fn.dummy_name=i
+        i+=1
 
         # remove weight from parameter list
         del module2use._parameters[name2use]
@@ -96,6 +102,7 @@ class Reparameterization(object):
 
         # remove weight during backward
         handle = hook_module.register_backward_hook(fn.backward_hook)
+ #       print(len(hook_module._backward_hooks))
         # get hook key so we can delete it later
         fn.backward_hook_key = handle.id
 
@@ -141,11 +148,13 @@ class Reparameterization(object):
         module2use, name2use = Reparameterization.get_module_and_name(module, self.name)
         _w = getattr(module2use, name2use)
         if not self.evaluated or _w is None:
+        #    print (self.dummy_name)
             setattr(module2use, name2use, self.compute_weight(module2use, name2use))
             self.evaluated = True
 
     def backward_hook(self, module, grad_input, grad_output):
         """callable hook for backward pass"""
         module2use, name2use = Reparameterization.get_module_and_name(module, self.name)
+#        print('backward', self.dummy_name)
         wn = getattr(module2use, name2use)
         self.evaluated = False
