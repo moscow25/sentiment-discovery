@@ -201,7 +201,7 @@ if not args.no_weight_norm:
 
 # create optimizer and fp16 models
 optimizer_params = None
-if not args.tied:
+if not args.freeze:
     optimizer_params = model.parameters()
 else:
     optimizer_params = list(model.decoder.parameters())+list(model.latent_hidden_transform.parameters())+list(model.latent_cell_transform.parameters())
