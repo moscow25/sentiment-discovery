@@ -186,7 +186,12 @@ if args.load_pretrained != '':
     except:
         print('try with weight norm')
         apply_weight_norm(model.encoder.rnn, hook_child=False)
+        if not args.tied:
+            apply_weight_norm(model.decoder.rnn, hook_child=False)
         model.encoder.load_state_dict(sd)
+        # If we don't tie weigths... we still want to initialize decoder to a reasonable langauge model
+        if not args.tied:
+            model.decoder.load_state_dict(sd)
         remove_weight_norm(model)
 
 if not args.no_weight_norm:
@@ -289,7 +294,7 @@ def train(total_iters=0):
             print_len = min(args.batch_size, 3)
             encoder_text, decoder_text = rnn_model.get_text_from_outputs((output_enc, output_dec), temperature=args.temperature)
             print('------\nActual text:')
-            print('\n'.join([''.join([chr(c) for c in list(targets[:,l].data.cpu().numpy())]) for l in range(print_len)]))
+            print('\n'.join([(''.join([chr(c) for c in list(targets[:,l].data.cpu().numpy())])).replace('\n',' ') for l in range(print_len)]))
             print('------\nEncoder, decoder text:')
             print('\n'.join([''.join(cleanup_text(text)) for text in encoder_text[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
             print('-------')
