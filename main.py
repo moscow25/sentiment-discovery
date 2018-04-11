@@ -281,14 +281,14 @@ def train(total_iters=0):
         #output, hidden = model(data, reset_mask=reset_mask)
         output_enc, output_dec = model(data, reset_mask=reset_mask, temperature=args.temperature)
 
-        if i % 200 == 10:
+        if i % 1000 == 10:
             encoder_text, decoder_text = rnn_model.get_text_from_outputs((output_enc, output_dec), temperature=args.temperature)
             print('------\nActual text:')
-            print('\n'.join([''.join([chr(c) for c in list(targets[:,l].data.cpu().numpy())]) for l in range(5)]))
+            print('\n'.join([''.join([chr(c) for c in list(targets[:,l].data.cpu().numpy())]) for l in range(3)]))
             print('------\nEncoder, decoder text:')
-            print('\n'.join([''.join(cleanup_text(text)) for text in encoder_text[:5]]).encode('utf-8').decode('ascii','backslashreplace'))
+            print('\n'.join([''.join(cleanup_text(text)) for text in encoder_text[:3]]).encode('utf-8').decode('ascii','backslashreplace'))
             print('-------')
-            print('\n'.join([''.join(cleanup_text(text)) for text in decoder_text[:5]]).encode('utf-8').decode('ascii','backslashreplace'))
+            print('\n'.join([''.join(cleanup_text(text)) for text in decoder_text[:3]]).encode('utf-8').decode('ascii','backslashreplace'))
 
         #loss = criterion(output.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
         loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
