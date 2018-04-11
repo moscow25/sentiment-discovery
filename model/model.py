@@ -25,7 +25,9 @@ def tie_params(module_src, module_dst):
         tie_params(module, getattr(module_dst, mname))
 
 class RNNAutoEncoderModel(nn.Module):
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=True, freeze=False, teacher_force=True, attention=False):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
+                tie_weights=True, freeze=False, teacher_force=True,
+                attention=False, init_transform_id=False):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
@@ -43,9 +45,18 @@ class RNNAutoEncoderModel(nn.Module):
 #            nlayers=nlayers, dropout=dropout)
             self.decoder = decoder
         # Transform final hidden state (TanH so that it's in bounds)
-        self.latent_hidden_transform = nn.Sequential(nn.Linear(nhid, nhid), nn.Tanh())
+        # Option -- initialize hidden transfor to something like the identity matrix -- tricky with Tanh() after
+        if init_transform_id:
+            linear_hidden = nn.Linear(nhid, nhid)
+            linear_hidden.weight.data.copy_(torch.eye(nhid) * 2.0)
+            self.latent_hidden_transform = nn.Sequential(linear_hidden, nn.Tanh())
+        else:
+            # Else initialize with random weights
+            self.latent_hidden_transform = nn.Sequential(nn.Linear(nhid, nhid), nn.Tanh())
         # Transform cell state [maybe not necessary]
         self.latent_cell_transform = nn.Linear(nhid, nhid)
+        if init_transform_id:
+            self.latent_cell_transform.weight.data.copy_(torch.eye(nhid))
 
     def forward(self, input, reset_mask=None, temperature=0.):
         if self.freeze:
