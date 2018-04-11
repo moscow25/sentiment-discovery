@@ -68,6 +68,8 @@ parser.add_argument('--rank', type=int, default=-1,
                     help='distributed worker rank. Typically set automatically from multiproc.py')
 parser.add_argument('--optim', default='SGD',
                     help='One of SGD or Adam')
+parser.add_argument('--load_pretrained', type=str, default='',
+                    help='load a pretrained language model into the encoder')
 
 # Add dataset args to argparser and set some defaults
 data_config, data_parser = configure_data(parser)
@@ -169,6 +171,18 @@ if args.load != '':
         if not args.tied:
             apply_weight_norm(model.decoder.rnn, hook_child=False)
         model.load_state_dict(sd)
+        remove_weight_norm(model)
+
+if args.load_pretrained != '':
+    sd = torch.load(args.load_pretrained, map_location=lambda storage, loc: storage)
+    try:
+        print('try load w/o weightnorm')
+        model.encoder.load_state_dict(sd)
+        print('load w/o weightnorm success')
+    except:
+        print('try with weight norm')
+        apply_weight_norm(model.encoder.rnn, hook_child=False)
+        model.encoder.load_state_dict(sd)
         remove_weight_norm(model)
 
 if not args.no_weight_norm:
