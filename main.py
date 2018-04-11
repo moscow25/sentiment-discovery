@@ -171,9 +171,9 @@ if args.load != '':
         print('load w/o weightnorm success')
     except:
         print('try with weight norm')
-        apply_weight_norm(model.encoder.rnn, hook_child=False)
+        apply_weight_norm(model.encoder.rnn, hook_child=True)
         if not args.tied:
-            apply_weight_norm(model.decoder.rnn, hook_child=False)
+            apply_weight_norm(model.decoder.rnn, hook_child=True)
         model.load_state_dict(sd)
         remove_weight_norm(model)
 
@@ -185,9 +185,9 @@ if args.load_pretrained != '':
         print('load w/o weightnorm success')
     except:
         print('try with weight norm')
-        apply_weight_norm(model.encoder.rnn, hook_child=False)
+        apply_weight_norm(model.encoder.rnn, hook_child=True)
         if not args.tied:
-            apply_weight_norm(model.decoder.rnn, hook_child=False)
+            apply_weight_norm(model.decoder.rnn, hook_child=True)
         model.encoder.load_state_dict(sd)
         # If we don't tie weigths... we still want to initialize decoder to a reasonable langauge model
         if not args.tied:
@@ -200,14 +200,19 @@ if not args.no_weight_norm:
         apply_weight_norm(model.decoder.rnn, hook_child=True)
 
 # create optimizer and fp16 models
+optimizer_params = None
+if not args.tied:
+    optimizer_params = model.parameters()
+else:
+    optimizer_params = list(model.decoder.parameters())+list(model.latent_hidden_transform.parameters())+list(model.latent_cell_transform.parameters())
 if args.fp16:
     model = FP16_Module(model)
-    optim = eval('torch.optim.'+args.optim)(model.parameters(), lr=args.lr)
+    optim = eval('torch.optim.'+args.optim)(optimizer_params, lr=args.lr)
     optim = FP16_Optimizer(optim,
                            static_loss_scale=args.loss_scale,
                            dynamic_loss_scale=args.dynamic_loss_scale)
 else:
-    optim = eval('torch.optim.'+args.optim)(model.parameters(), lr=args.lr)
+    optim = eval('torch.optim.'+args.optim)(optimizer_params, lr=args.lr)
 
 # add linear learning rate scheduler
 if train_data is not None:
