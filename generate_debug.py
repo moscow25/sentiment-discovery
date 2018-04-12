@@ -244,9 +244,9 @@ forced_output = [chr(int(x)) for x in forced_output]
 unforced_output = [chr(int(x)) for x in unforced_output]
 
 print('-----forced output-----')
-print(forced_output)
+print(''.join(forced_output))
 print('-----unforced output-----')
-print(unforced_output)
+print(''.join(unforced_output))
 
 exit()
 

@@ -8,7 +8,7 @@ from apex import RNN
 def sample(out, temperature=0.1, cpu=False):
     # Temperature == 0 is broken [all results in 0-32 space, no printable characters. Use low temp > 0.]
     if temperature == 0:
-        print('WARNING: Temp=0 is broken. Will not return correct results')
+#        print('WARNING: Temp=0 is broken. Will not return correct results')
         char_idx = torch.max(out.squeeze().data, 0)[1]
     else:
         char_weights = out.float().squeeze().data.div(temperature).exp()

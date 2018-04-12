@@ -164,6 +164,9 @@ rnn_model = model
 
 if args.load != '':
     sd = torch.load(args.load, map_location=lambda storage, loc: storage)
+    #@nicky: here's how to fix the reloading problem I was talking about
+    #sd['decoder']=sd['encoder']
+
     #sd = torch.load(args.load)
     try:
         print('try load w/o weightnorm')
