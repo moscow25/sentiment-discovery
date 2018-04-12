@@ -65,9 +65,9 @@ class RNNAutoEncoderModel(nn.Module):
         else:
             encoder_output, encoder_hidden = self.encode_in(input, reset_mask)
         emb = self.process_emb(encoder_hidden)
-        decoder_output, decoder_hidden = self.decode_out(input, emb, reset_mask, temperature)
+        decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask, temperature)
         self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
-        return encoder_output, decoder_output
+        return encoder_output, decoder_output, sampled_out
 
     def encode_in(self, input, reset_mask=None):
         out, (hidden, cell) = self.encoder(input, reset_mask=reset_mask)
@@ -79,8 +79,8 @@ class RNNAutoEncoderModel(nn.Module):
         self.decoder.set_hidden(hidden_output)
         # NOTE: change here to remove teacher forcing
         # TODO: pass flags to use internal state (no teacher forcing)
-        out, (hidden, cell) = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1], temperature=temperature)
-        return out, (hidden, cell)
+        out, (hidden, cell), sampled_out = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1], temperature=temperature)
+        return out, (hidden, cell), sampled_out
 
     # placeholder
     def process_emb(self, emb):
@@ -119,7 +119,7 @@ class RNNAutoEncoderModel(nn.Module):
             sd = destination
         sd['encoder'] = self.encoder.state_dict(prefix=prefix, keep_vars=keep_vars)
         if self.tied:
-            sd['decoder'] = self.encoder
+            sd['decoder'] = sd['encoder']
         else:
             sd['decoder'] = self.decoder.state_dict(prefix=prefix, keep_vars=keep_vars)
         sd['hidden_transform'] = self.latent_hidden_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
@@ -222,18 +222,22 @@ class RNNDecoder(nn.Module):
         outs = []
         context = context.view(1,context.size(-2), context.size(-1))
         seq_len = input.size(0)
+        out_txt = [input[0].squeeze()]
         for i in range(seq_len):
             if self.teacher_force or i == 0:
                 x = input[i]
 #                print(x.size())
             else:
 #                print(i)
-                x = sample(out, temperature).squeeze()
+#                x = sample(out, temperature).squeeze()
+                x = sampled_out
 #                print(x)
+#            out_txt.append(x)
             emb = self.drop(self.encoder(x))
+            emb = emb.view(-1, emb.size(-1))
 #            if i>=seq_len-2:
                 #print('rnn_hook', len(self.rnn._backward_hooks))
-            _, hidden = self.rnn(emb.unsqueeze(0), reset_mask=reset_mask[i])
+            _, hidden = self.rnn(emb.unsqueeze(0), reset_mask=reset_mask[i] if reset_mask is not None else None)
 #            if i>=seq_len-2:
 #                hidden[1].register_hook(lambda x: print('hook3'))
 #                print(hidden[1].size())
@@ -246,10 +250,16 @@ class RNNDecoder(nn.Module):
                 decoder_in = decoder_in * context
             out = self.decoder(decoder_in)
             outs.append(out)
+
+            sampled_out = sample(out, temperature).squeeze()
+            out_txt.append(sampled_out.data)
+        
+#        print([x.size() for x in out_txt])
+        out_txt = torch.stack(out_txt)
         outs = torch.cat(outs)
 #        outs = torch.stack(outs)
 #        outs.register_hook(lambda x:print('hooked'))
-        return outs, (cell, hidden)
+        return outs, (cell, hidden), out_txt
 
     def state_dict(self, destination=None, prefix='', keep_vars=False):
         sd = destination if destination is not None else {}

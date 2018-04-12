@@ -270,7 +270,7 @@ def evaluate(data_source):
     with torch.no_grad():
         for i, batch in enumerate(data_source):
             data, targets, reset_mask = get_batch(batch)
-            output_enc, output_dec = model(data, reset_mask=reset_mask)
+            output_enc, output_dec, sampled_out = model(data, reset_mask=reset_mask)
             loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
             loss_dec = criterion(output_dec.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
             w_enc, w_dec = 0.6, 0.4
@@ -293,7 +293,7 @@ def train(total_iters=0):
 
         data, targets, reset_mask = get_batch(batch)
         #output, hidden = model(data, reset_mask=reset_mask)
-        output_enc, output_dec = model(data, reset_mask=reset_mask, temperature=args.temperature)
+        output_enc, output_dec, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
 
         if i % 1000 == 0:
             print_len = min(args.batch_size, 3)
