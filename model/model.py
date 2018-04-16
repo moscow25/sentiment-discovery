@@ -27,7 +27,9 @@ def tie_params(module_src, module_dst):
 class RNNAutoEncoderModel(nn.Module):
     def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
                 tie_weights=True, freeze=False, teacher_force=True,
-                attention=False, init_transform_id=False):
+                attention=False, init_transform_id=False,
+                use_latent_hidden=True, transform_latent_hidden=True,
+                use_cell_hidden=True, transform_cell_hidden=True):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
@@ -58,16 +60,47 @@ class RNNAutoEncoderModel(nn.Module):
         if init_transform_id:
             self.latent_cell_transform.weight.data.copy_(torch.eye(nhid))
 
+        # Do we transform the hidden state in decoder? Hidden or cell?
+        self.use_latent_hidden = use_latent_hidden
+        self.transform_latent_hidden = transform_latent_hidden
+        self.use_cell_hidden = use_cell_hidden
+        self.transform_cell_hidden = transform_cell_hidden
+
+        # If we overwrite state [from emotion, etc] -- values set from outside the house
+        self.emotion_neurons = []
+        self.emotion_hidden_state = []
+        self.emotion_cell_state = []
+        # Boost promotion -- or turn off with 0.0
+        self.hidden_boost_factor = 1.0
+        self.cell_boost_factor = 1.0
+
     def forward(self, input, reset_mask=None, temperature=0.):
         if self.freeze:
             with torch.no_grad():
                 encoder_output, encoder_hidden = self.encode_in(input, reset_mask)
         else:
             encoder_output, encoder_hidden = self.encode_in(input, reset_mask)
-        emb = self.process_emb(encoder_hidden)
+
+        #print('encoder hidden:')
+        #print(encoder_hidden)
+
+        # If we want to manipulate neurons [from outside, N=1, etc]
+        if self.emotion_neurons:
+            print('-------\nChanging cells: %s' % self.emotion_neurons)
+            for n in self.emotion_neurons:
+                hval = self.emotion_hidden_state[n]
+                cval = self.emotion_cell_state[n]
+                if self.hidden_boost_factor != 0.0:
+                    encoder_hidden[0][0][0][n] = hval * self.hidden_boost_factor
+                if self.cell_boost_factor != 0.0:
+                    encoder_hidden[1][0][0][n] = cval * self.cell_boost_factor
+
+        emb = self.process_emb(encoder_hidden,
+            use_latent_hidden=self.use_latent_hidden, transform_latent_hidden=self.transform_latent_hidden,
+            use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden)
         decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask, temperature)
         self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
-        return encoder_output, decoder_output, sampled_out
+        return encoder_output, decoder_output, encoder_hidden, sampled_out
 
     def encode_in(self, input, reset_mask=None):
         out, (hidden, cell) = self.encoder(input, reset_mask=reset_mask)
@@ -83,14 +116,27 @@ class RNNAutoEncoderModel(nn.Module):
         return out, (hidden, cell), sampled_out
 
     # placeholder
-    def process_emb(self, emb):
+    def process_emb(self, emb, use_latent_hidden=True, transform_latent_hidden=True, use_cell_hidden=True, transform_cell_hidden=True):
         # Hidden state for RNN-layer0; cell state for RNN-layer0
         # [Transpose, of a sort]
         #emb = [[emb[0][0], emb[1][0]]]
-        # TODO -- add possible transformation?
-        emb = [[self.latent_hidden_transform(emb[0][0]), self.latent_cell_transform(emb[1][0])]]
- #       emb[0][1].register_hook(lambda x:print('hooked2'))
-        return emb
+        # Break out all possible choices -- do we pass cell and/or hidden state? Do we add trainable transform?
+        # Why?? These transforms help for decoding. But potentially not necessary, and not good for style transfer.
+        if use_latent_hidden:
+            hid = emb[0][0]
+        else:
+            hid = torch.zeros_like(emb[0][0])
+        if transform_latent_hidden:
+            hid = self.latent_hidden_transform(hid)
+        if use_cell_hidden:
+            cell = emb[1][0]
+        else:
+            cell = torch.zeros_like(emb[1][0])
+        if transform_cell_hidden:
+            cell = self.latent_cell_transform(cell)
+
+        #emb = [[self.latent_hidden_transform(emb[0][0]), self.latent_cell_transform(emb[1][0])]]
+        return [[hid, cell]]
 
     def get_text_from_outputs(self, out, temperature=0):
         """
@@ -253,7 +299,7 @@ class RNNDecoder(nn.Module):
 
             sampled_out = sample(out, temperature).squeeze()
             out_txt.append(sampled_out.data)
-        
+
 #        print([x.size() for x in out_txt])
         out_txt = torch.stack(out_txt)
         outs = torch.cat(outs)
@@ -343,8 +389,14 @@ class RNNFeaturizer(nn.Module):
         return sd
 
     def load_state_dict(self, state_dict, strict=True):
-        self.encoder.load_state_dict(state_dict['encoder'], strict=strict)
-        self.rnn.load_state_dict(state_dict['rnn'], strict=strict)
+        # For AutoEncoder module, need extra "encoder" path
+        # TODO: Automate this switch.
+        if 'encoder' in state_dict['encoder'].keys():
+            self.encoder.load_state_dict(state_dict['encoder']['encoder'], strict=strict)
+            self.rnn.load_state_dict(state_dict['encoder']['rnn'], strict=strict)
+        else:
+            self.encoder.load_state_dict(state_dict['encoder'], strict=strict)
+            self.rnn.load_state_dict(state_dict['rnn'], strict=strict)
 
 def get_valid_outs(timestep, seq_len, out, last_out):
     invalid_steps = timestep >= seq_len

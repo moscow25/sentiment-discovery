@@ -73,6 +73,16 @@ parser.add_argument('--load_pretrained', type=str, default='',
 parser.add_argument('--init_transform_id', action='store_true',
                     help='Initialize last hidden to init-hidden in decoder, with identity. Why? Pretrained language model.')
 
+# Control what elements are used to pass state to the decoder. Why? May help with emotion transfer
+parser.add_argument('--decoder_use_hidden', action='store_true',
+                    help='Pass hidden state to decoder')
+parser.add_argument('--decoder_use_cell', action='store_true',
+                    help='Pass cell state to decoder')
+parser.add_argument('--decoder_xform_hidden', action='store_true',
+                    help='Linear transform (with a tanh()) on hidden to decoder')
+parser.add_argument('--decoder_xform_cell', action='store_true',
+                    help='Linear transform on cell state to decoder')
+
 # Add dataset args to argparser and set some defaults
 data_config, data_parser = configure_data(parser)
 data_config.set_defaults(data_set_type='unsupervised', transpose=True)
@@ -155,7 +165,9 @@ ntokens = args.data_size
 #model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied)
 model = model.RNNAutoEncoderModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers,
     dropout=args.dropout, tie_weights=args.tied, freeze=args.freeze,
-    teacher_force=not args.no_force, attention=args.attention, init_transform_id=args.init_transform_id)
+    teacher_force=not args.no_force, attention=args.attention, init_transform_id=args.init_transform_id,
+    use_latent_hidden=args.decoder_use_hidden, transform_latent_hidden=args.decoder_xform_hidden,
+    use_cell_hidden=args.decoder_use_cell, transform_cell_hidden=args.decoder_xform_cell)
 if torch.cuda.is_available():
     print('Compiling model in CUDA mode [make sure]')
     model = model.cuda()
@@ -296,17 +308,19 @@ def train(total_iters=0):
 
         data, targets, reset_mask = get_batch(batch)
         #output, hidden = model(data, reset_mask=reset_mask)
-        output_enc, output_dec, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
+        output_enc, output_dec, encoder_hidden, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
 
         if i % 1000 == 0:
             print_len = min(args.batch_size, 3)
             encoder_text, decoder_text = rnn_model.get_text_from_outputs((output_enc, output_dec), temperature=args.temperature)
             print('------\nActual text:')
             print('\n'.join([(''.join([chr(c) for c in list(targets[:,l].data.cpu().numpy())])).replace('\n',' ') for l in range(print_len)]))
-            print('------\nEncoder, decoder text:')
+            print('------\nEncoder, decoder, sampled_out text:')
             print('\n'.join([''.join(cleanup_text(text)) for text in encoder_text[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
             print('-------')
             print('\n'.join([''.join(cleanup_text(text)) for text in decoder_text[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
+            print('-------')
+            print('\n'.join([''.join(cleanup_text(text)) for text in sampled_out[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
 
         #loss = criterion(output.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
         loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
