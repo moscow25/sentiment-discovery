@@ -65,6 +65,8 @@ parser.add_argument('--overwrite', type=float, default=None,
                     help='Overwrite value of neuron s.t. generated text reads as a +1/-1 classification')
 parser.add_argument('--text', default='',
                     help='warm up generation with specified text first')
+parser.add_argument('--emotion_text', default='',
+                    help='transfer emotion from text, if supplied (try copy/merge top X neurons')
 parser.add_argument('--attention', action='store_true',
                     help='')
 args = parser.parse_args()
@@ -95,7 +97,7 @@ except:
     apply_weight_norm(model.encoder.rnn, hook_child=True)
 #    if not args.tied:
     apply_weight_norm(model.decoder.rnn, hook_child=True)
-    print([n for n,p in model.named_parameters()])
+    #print([n for n,p in model.named_parameters()])
     model.load_state_dict(sd)
     remove_weight_norm(model)
 #try:
@@ -223,30 +225,55 @@ mask = args.overwrite is not None
 
 model.eval()
 
-input_text = '\n ' + args.text + ' '
+# Run through text -- no emotion transfer
+print('Text autoencoder -- no emotion xfer')
 
+input_text = '\n ' + args.text + ' \n'
 hidden = model.encoder.rnn.init_hidden(1)
-
 input = Variable(torch.from_numpy(np.array([int(ord(c)) for c in input_text]))).cuda().long()
 input = input.view(-1, 1).contiguous()
-
 unforced_output = model(input, temperature=args.temperature)
-
 model.decoder.teacher_force = True
-
 model.encoder.rnn.reset_hidden(1)
-
 forced_output = model(input, temperature=args.temperature)
-
 forced_output = list(forced_output[-1].squeeze().cpu().numpy())
 unforced_output = list(unforced_output[-1].squeeze().cpu().numpy())
 forced_output = [chr(int(x)) for x in forced_output]
 unforced_output = [chr(int(x)) for x in unforced_output]
 
 print('-----forced output-----')
-print(''.join(forced_output))
+print((''.join(forced_output)).replace('\n', ' '))
 print('-----unforced output-----')
-print(''.join(unforced_output))
+print((''.join(unforced_output)).replace('\n', ' '))
+
+if not args.emotion_text:
+    print('--> No emotion text given.')
+    exit()
+
+# Now try emotion text -- by itself. Save encoder state
+input_emotion_text = '\n ' + args.emotion_text
+input_emotion = Variable(torch.from_numpy(np.array([int(ord(c)) for c in input_emotion_text]))).cuda().long()
+input_emotion = input_emotion.view(-1, 1).contiguous()
+model.decoder.teacher_force = False
+model.encoder.rnn.reset_hidden(1)
+unforced_emotion_output = model(input_emotion, temperature=args.temperature)
+model.decoder.teacher_force = True
+model.encoder.rnn.reset_hidden(1)
+forced_emotion_output = model(input, temperature=args.temperature)
+# Key is that we capture the emotion encoder hidden state.
+emotion_hidden_state = forced_emotion_output[0].squeeze().cpu().numpy()
+forced_emotion_output = list(forced_emotion_output[-1].squeeze().cpu().numpy())
+unforced_emotion_output = list(unforced_emotion_output[-1].squeeze().cpu().numpy())
+forced_emotion_output = [chr(int(x)) for x in forced_emotion_output]
+unforced_emotion_output = [chr(int(x)) for x in unforced_emotion_output]
+
+print('-----forced emotion output-----')
+print((''.join(forced_emotion_output)).replace('\n', ' '))
+print('-----unforced emotion output-----')
+print((''.join(unforced_emotion_output)).replace('\n', ' '))
+
+print('Emotion hidden state')
+print(emotion_hidden_state)
 
 exit()
 
