@@ -27,7 +27,9 @@ def tie_params(module_src, module_dst):
 class RNNAutoEncoderModel(nn.Module):
     def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
                 tie_weights=True, freeze=False, teacher_force=True,
-                attention=False, init_transform_id=False):
+                attention=False, init_transform_id=False,
+                use_latent_hidden=False, transform_latent_hidden=False,
+                use_cell_hidden=False, transform_cell_hidden=False):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
@@ -44,6 +46,13 @@ class RNNAutoEncoderModel(nn.Module):
 #            decoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
 #            nlayers=nlayers, dropout=dropout)
             self.decoder = decoder
+
+        # Do we transform the hidden state in decoder? Hidden or cell?
+        self.use_latent_hidden = use_latent_hidden
+        self.transform_latent_hidden = transform_latent_hidden
+        self.use_cell_hidden = use_cell_hidden
+        self.transform_cell_hidden = transform_cell_hidden
+
         # Transform final hidden state (TanH so that it's in bounds)
         # Option -- initialize hidden transfor to something like the identity matrix -- tricky with Tanh() after
         if init_transform_id:
@@ -53,10 +62,16 @@ class RNNAutoEncoderModel(nn.Module):
         else:
             # Else initialize with random weights
             self.latent_hidden_transform = nn.Sequential(nn.Linear(nhid, nhid), nn.Tanh())
+        if not self.use_latent_hidden or not self.transform_latent_hidden:
+            print('Latent hidden created but not used')
+            self.latent_hidden_transform = None 
         # Transform cell state [maybe not necessary]
         self.latent_cell_transform = nn.Linear(nhid, nhid)
         if init_transform_id:
             self.latent_cell_transform.weight.data.copy_(torch.eye(nhid))
+        if not self.use_cell_hidden or not self.transform_cell_hidden:
+            print('Latent cell created but not used')
+            self.latent_cell_transform = None
 
     def forward(self, input, reset_mask=None, temperature=0.):
         if self.freeze:
@@ -64,7 +79,9 @@ class RNNAutoEncoderModel(nn.Module):
                 encoder_output, encoder_hidden = self.encode_in(input, reset_mask)
         else:
             encoder_output, encoder_hidden = self.encode_in(input, reset_mask)
-        emb = self.process_emb(encoder_hidden)
+        emb = self.process_emb(encoder_hidden,
+            use_latent_hidden=self.use_latent_hidden, transform_latent_hidden=self.transform_latent_hidden,
+            use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden)
         decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask, temperature)
         self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
         return encoder_output, decoder_output, sampled_out
@@ -83,14 +100,26 @@ class RNNAutoEncoderModel(nn.Module):
         return out, (hidden, cell), sampled_out
 
     # placeholder
-    def process_emb(self, emb):
+    def process_emb(self, emb, use_latent_hidden=True, transform_latent_hidden=True, use_cell_hidden=True, transform_cell_hidden=True):
         # Hidden state for RNN-layer0; cell state for RNN-layer0
         # [Transpose, of a sort]
         #emb = [[emb[0][0], emb[1][0]]]
-        # TODO -- add possible transformation?
-        emb = [[self.latent_hidden_transform(emb[0][0]), self.latent_cell_transform(emb[1][0])]]
- #       emb[0][1].register_hook(lambda x:print('hooked2'))
-        return emb
+        # Break out all possible choices -- do we pass cell and/or hidden state? Do we add trainable transform?
+        # Why?? These transforms help for decoding. But potentially not necessary, and not good for style transfer.
+        if use_latent_hidden:
+            hid = emb[0][0]
+        else:
+            hid = torch.zeros_like(emb[0][0])
+        if transform_latent_hidden:
+            hid = self.latent_hidden_transform(hid)
+        if use_cell_hidden:
+            cell = emb[1][0]
+        else:
+            cell = torch.zeros_like(emb[1][0])
+        if transform_cell_hidden:
+             cell = self.latent_cell_transform(cell)
+        #emb = [[self.latent_hidden_transform(emb[0][0]), self.latent_cell_transform(emb[1][0])]]
+        return [[hid, cell]]
 
     def get_text_from_outputs(self, out, temperature=0):
         """
@@ -122,8 +151,14 @@ class RNNAutoEncoderModel(nn.Module):
             sd['decoder'] = sd['encoder']
         else:
             sd['decoder'] = self.decoder.state_dict(prefix=prefix, keep_vars=keep_vars)
-        sd['hidden_transform'] = self.latent_hidden_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
-        sd['cell_transform'] = self.latent_cell_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
+        if self.use_latent_hidden and self.transform_latent_hidden:
+            sd['hidden_transform'] = self.latent_hidden_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
+        else:
+            sd['hidden_transform'] = {}
+        if self.use_cell_hidden and self.transform_cell_hidden:
+            sd['cell_transform'] = self.latent_cell_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
+        else:
+            sd['cell_transform'] = {}
         return sd
 
     def load_state_dict(self, sd, strict=True):
