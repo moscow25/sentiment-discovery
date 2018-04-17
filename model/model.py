@@ -323,7 +323,7 @@ class RNNFeaturizer(nn.Module):
 
         return cell
 
-    def get_features(self, hidden, get_hidden=True):
+    def get_features(self, hidden, get_hidden=False):
         if get_hidden:
             cell = hidden[0]
         else:

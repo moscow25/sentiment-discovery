@@ -234,7 +234,7 @@ unforced_output = model(input, temperature=args.temperature)
 
 model.decoder.teacher_force = True
 
-model.encoder.rnn.reset_hidden(1)
+#model.encoder.rnn.reset_hidden(1)
 
 forced_output = model(input, temperature=args.temperature)
 

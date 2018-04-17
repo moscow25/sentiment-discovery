@@ -77,6 +77,8 @@ with open(args.load_model, 'rb') as f:
     sd = torch.load(f)
     if 'encoder' in sd:
         sd = sd['encoder']
+    if 'rnn' not in sd:
+        sd = sd['encoder']
 
 try:
     model.load_state_dict(sd)
@@ -100,7 +102,7 @@ def transform(model, text):
 
     def get_batch(batch):
         '''
-        Process batch and return tuple of (text, text label, text length) long tensors.
+         Process batch and return tuple of (text, text label, text length) long tensors.
         Text is returned in column format with (time, batch) dimensions.
         '''
         (text, timesteps), labels = batch
