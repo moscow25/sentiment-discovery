@@ -117,7 +117,7 @@ def transform(model, text):
         text = Variable(text).long()
         timesteps = Variable(timesteps).long()
         labels = Variable(labels).long()
-        return text.cuda().t(), labels.cuda(), timesteps.cuda()
+        return text.cuda().t(), labels.cuda(), timesteps.cuda()-1
 
     tstart = start = time.time()
     n = 0
@@ -147,7 +147,7 @@ def transform(model, text):
             #print(extra_transform(cell))
             features_xform.append(extra_transform(cell).data.cpu().numpy())
 
-            num_char = length_batch.sum().data[0]
+            num_char = length_batch.sum().data.item()
 
             end = time.time()
             elapsed_time = end - start
@@ -156,7 +156,10 @@ def transform(model, text):
 
             s_per_batch = total_time / (i+1)
             timeleft = (len_ds - (i+1)) * s_per_batch
-            ch_per_s = num_char / (elapsed_time + 1)
+            if elapsed_time == 0:
+                ch_per_s = num_char
+            else:
+                ch_per_s = num_char / (elapsed_time + 1)
             print('batch {:5d}/{:5d} | ch/s {:.2E} | time {:.2E} | time left {:.2E}'.format(i, len_ds, ch_per_s, elapsed_time, timeleft))
 
     if not first_feature:
@@ -213,7 +216,7 @@ def train_logreg(trX, trY, vaX=None, vaY=None, teX=None, teY=None, penalty='l1',
     scores = []
     if model is None:
         for i, c in enumerate(C):
-            model = LogisticRegression(C=c, penalty=penalty, max_iter=max_iter, random_state=42+i)
+            model = LogisticRegression(C=c, penalty=penalty, max_iter=max_iter, random_state=seed+i)
             model.fit(trX, trY)
             if vaX is not None:
                 score = model.score(vaX, vaY)
@@ -222,7 +225,7 @@ def train_logreg(trX, trY, vaX=None, vaY=None, teX=None, teY=None, penalty='l1',
             scores.append(score)
             del model
         c = C[np.argmax(scores)]
-        model = LogisticRegression(C=c, penalty=penalty, max_iter=max_iter, random_state=42+len(C))
+        model = LogisticRegression(C=c, penalty=penalty, max_iter=max_iter, random_state=seed+len(C))
         model.fit(trX, trY)
     else:
         c = model.C
