@@ -67,6 +67,8 @@ parser.add_argument('--text', default='',
                     help='warm up generation with specified text first')
 parser.add_argument('--emotion_text', default='',
                     help='transfer emotion from text, if supplied (try copy/merge top X neurons')
+parser.add_argument('--num_emotion_neurons', type=int, default='25',
+                    help='Cap number of neurons for emotion transfer?')
 parser.add_argument('--attention', action='store_true',
                     help='')
 args = parser.parse_args()
@@ -89,11 +91,11 @@ if args.fp16:
 with open(args.load_model, 'rb') as f:
     sd = torch.load(f)
 try:
-    print('try load w/o weightnorm')
+#    print('try load w/o weightnorm')
     model.load_state_dict(sd)
-    print('load w/o weightnorm success')
+#    print('load w/o weightnorm success')
 except:
-    print('try with weight norm')
+#    print('try with weight norm')
     apply_weight_norm(model.encoder.rnn, hook_child=True)
 #    if not args.tied:
     apply_weight_norm(model.decoder.rnn, hook_child=True)
@@ -259,21 +261,66 @@ model.encoder.rnn.reset_hidden(1)
 unforced_emotion_output = model(input_emotion, temperature=args.temperature)
 model.decoder.teacher_force = True
 model.encoder.rnn.reset_hidden(1)
-forced_emotion_output = model(input, temperature=args.temperature)
+forced_emotion_output = model(input_emotion, temperature=args.temperature)
 # Key is that we capture the emotion encoder hidden state.
-emotion_hidden_state = forced_emotion_output[0].squeeze().cpu().numpy()
+emotion_hidden_state = forced_emotion_output[2][0].squeeze().data#.cpu().numpy()
+emotion_cell_state = forced_emotion_output[2][1].squeeze().data#.cpu().numpy()
 forced_emotion_output = list(forced_emotion_output[-1].squeeze().cpu().numpy())
 unforced_emotion_output = list(unforced_emotion_output[-1].squeeze().cpu().numpy())
 forced_emotion_output = [chr(int(x)) for x in forced_emotion_output]
 unforced_emotion_output = [chr(int(x)) for x in unforced_emotion_output]
 
-print('-----forced emotion output-----')
+print('\n-----forced emotion output-----')
 print((''.join(forced_emotion_output)).replace('\n', ' '))
 print('-----unforced emotion output-----')
 print((''.join(unforced_emotion_output)).replace('\n', ' '))
 
-print('Emotion hidden state')
-print(emotion_hidden_state)
+#print('Emotion hidden state %d' % len(emotion_hidden_state))
+#print(emotion_hidden_state)
+#print('Emotion cell state %d' % len(emotion_cell_state))
+#print(emotion_cell_state)
+
+# top 25
+# emotion_neurons = [1162, 3494, 898, 732, 2022, 986, 2743, 3572, 977, 1526, 3737, 781, 490, 2264, 287, 2506, 550, 680, 3635, 3650, 4054, 3078, 2846, 3616, 159]
+# top 156 [all neurons from transfer.py]
+emotion_neurons = [1162, 3494, 898, 732, 2022, 986, 2743, 3572, 977, 1526, 3737, 781, 490, 2264, 287, 2506, 550, 680, 3635, 3650, 4054, 3078, 2846, 3616, 159, 2701, 2987, 2858, 797, 1506, 1766, 1657, 922, 3168, 1682, 3428, 1140, 2872, 3982, 336, 237, 1862, 1083, 3984, 903, 19, 3760, 572, 3130, 3272, 4039, 3778, 2768, 110, 276, 1203, 1498, 1941, 1910, 3908, 2055, 1364, 2698, 2587, 3565, 115, 1666, 1937, 1825, 319, 1330, 1081, 103, 2482, 1287, 84, 3670, 2144, 963, 1522, 3241, 2955, 3160, 2536, 3997, 1190, 2978, 2888, 501, 1243, 3407, 1309, 470, 3296, 1587, 162, 1260, 3292, 2802, 3911, 2389, 1084, 3525, 2007, 1936, 377, 2643, 3092, 2183, 3820, 1413, 2780, 3173, 3430, 2039, 3274, 3252, 3865, 2485, 1775, 1702, 88, 2880, 3295, 3232, 2693, 654, 662, 577, 51, 3798, 1302, 790, 1494, 1045, 1120, 2552, 1562, 2878, 3302, 355, 1804, 3395, 1036, 2750, 1105, 516, 927, 2060, 1711, 1500, 3813, 2636, 3405, 2993, 447]
+# For no-TF model -- shockingly, a similar list. Same initialization... 
+emotion_neurons = [1162, 179, 3982, 1134, 2698, 3494, 3523, 732, 4048, 669, 490, 2298, 3399, 4033, 1100, 3022, 1920, 1344, 1728, 1506, 1517, 1827, 2872, 3106, 340, 572, 2318, 473, 3760, 134, 316, 796, 3405, 229, 1230, 163, 760, 1200, 1657, 1377, 540, 2573, 3295, 3208, 709, 2227, 2531, 352, 1941, 97, 1483, 1004, 2424, 1430, 371, 1783, 3738, 1379, 1620, 203, 3274, 2930, 2825, 2779, 3632, 1643, 3937, 1575, 1909, 2649, 1836, 728, 2587, 1522, 1672, 225, 537, 1937, 4006, 3751, 2310, 803, 631, 3423, 48, 853, 1989, 1862, 3750, 2803, 2787, 4069, 149, 3438, 305, 1488, 426, 841, 3922, 3446]
+print('Using emotion xfer on %d neurons' % len(emotion_neurons))
+#for n in emotion_neurons:
+#    print('\t%d:\t%.3f/%.3f' % (n, emotion_hidden_state[n], emotion_cell_state[n]))
+
+# Now transfer these values during the next content-based generation
+model.emotion_neurons = emotion_neurons[:args.num_emotion_neurons]
+model.emotion_hidden_state = emotion_hidden_state
+model.emotion_cell_state = emotion_cell_state
+# How much do we boost?
+model.hidden_boost_factor = 0.0
+model.cell_boost_factor = 1.0
+# Do we average values, or over-write (default is overwrite)
+
+# Run through text -- with attempted emotion transfer
+print('\nText autoencoder -- attempt emotion xfer')
+
+input_text = '\n ' + args.text + ' \n'
+hidden = model.encoder.rnn.init_hidden(1)
+input = Variable(torch.from_numpy(np.array([int(ord(c)) for c in input_text]))).cuda().long()
+input = input.view(-1, 1).contiguous()
+model.decoder.teacher_force = False
+model.encoder.rnn.reset_hidden(1)
+unforced_output = model(input, temperature=args.temperature)
+model.decoder.teacher_force = True
+model.encoder.rnn.reset_hidden(1)
+forced_output = model(input, temperature=args.temperature)
+forced_output = list(forced_output[-1].squeeze().cpu().numpy())
+unforced_output = list(unforced_output[-1].squeeze().cpu().numpy())
+forced_output = [chr(int(x)) for x in forced_output]
+unforced_output = [chr(int(x)) for x in unforced_output]
+
+print('-----forced output-----')
+print((''.join(forced_output)).replace('\n', ' '))
+print('-----unforced output-----')
+print((''.join(unforced_output)).replace('\n', ' '))
 
 exit()
 
