@@ -73,7 +73,12 @@ class RNNAutoEncoderModel(nn.Module):
         # Boost promotion -- or turn off with 0.0
         self.hidden_boost_factor = 1.0
         self.cell_boost_factor = 0.0
-        self.average_cell_value = True # average, instead of replace?
+        self.average_cell_value = False # True # average, instead of replace?
+        # Externally -- can also push vector simply to add to hidden state [for translation in pre-computed dimension]
+        self.use_added_hidden_state = False
+        self.added_hidden_state_vector = []
+        self.use_added_cell_state = False
+        self.added_cell_state_vector = []
 
     def forward(self, input, reset_mask=None, temperature=0.):
         if self.freeze:
@@ -98,6 +103,15 @@ class RNNAutoEncoderModel(nn.Module):
                     encoder_hidden[0][0][0][n] = v
                 if self.cell_boost_factor != 0.0:
                     encoder_hidden[1][0][0][n] = cval * self.cell_boost_factor
+        # If we want to directly add to thes hidden state/cell state vector
+        if self.use_added_hidden_state:
+            print('Adding hidden state vector')
+            print(self.added_hidden_state_vector)
+            encoder_hidden[0][0][0] += self.added_hidden_state_vector
+        if self.use_added_cell_state:
+            print('Adding cell state vector')
+            print(self.added_cell_state_vector)
+            encoder_hidden[1][0][0] += self.added_cell_state_vector
 
         emb = self.process_emb(encoder_hidden,
             use_latent_hidden=self.use_latent_hidden, transform_latent_hidden=self.transform_latent_hidden,

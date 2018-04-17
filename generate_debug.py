@@ -69,6 +69,8 @@ parser.add_argument('--emotion_text', default='',
                     help='transfer emotion from text, if supplied (try copy/merge top X neurons')
 parser.add_argument('--num_emotion_neurons', type=int, default='25',
                     help='Cap number of neurons for emotion transfer?')
+parser.add_argument('--emotion_vector', default='',
+                    help='Patho to numpy file with vector to apply to hidden state (model specific)')
 parser.add_argument('--attention', action='store_true',
                     help='')
 args = parser.parse_args()
@@ -285,7 +287,7 @@ print((''.join(unforced_emotion_output)).replace('\n', ' '))
 # top 156 [all neurons from transfer.py]
 emotion_neurons = [1162, 3494, 898, 732, 2022, 986, 2743, 3572, 977, 1526, 3737, 781, 490, 2264, 287, 2506, 550, 680, 3635, 3650, 4054, 3078, 2846, 3616, 159, 2701, 2987, 2858, 797, 1506, 1766, 1657, 922, 3168, 1682, 3428, 1140, 2872, 3982, 336, 237, 1862, 1083, 3984, 903, 19, 3760, 572, 3130, 3272, 4039, 3778, 2768, 110, 276, 1203, 1498, 1941, 1910, 3908, 2055, 1364, 2698, 2587, 3565, 115, 1666, 1937, 1825, 319, 1330, 1081, 103, 2482, 1287, 84, 3670, 2144, 963, 1522, 3241, 2955, 3160, 2536, 3997, 1190, 2978, 2888, 501, 1243, 3407, 1309, 470, 3296, 1587, 162, 1260, 3292, 2802, 3911, 2389, 1084, 3525, 2007, 1936, 377, 2643, 3092, 2183, 3820, 1413, 2780, 3173, 3430, 2039, 3274, 3252, 3865, 2485, 1775, 1702, 88, 2880, 3295, 3232, 2693, 654, 662, 577, 51, 3798, 1302, 790, 1494, 1045, 1120, 2552, 1562, 2878, 3302, 355, 1804, 3395, 1036, 2750, 1105, 516, 927, 2060, 1711, 1500, 3813, 2636, 3405, 2993, 447]
 # For no-TF model -- shockingly, a similar list. Same initialization... 
-emotion_neurons = [1162, 179, 3982, 1134, 2698, 3494, 3523, 732, 4048, 669, 490, 2298, 3399, 4033, 1100, 3022, 1920, 1344, 1728, 1506, 1517, 1827, 2872, 3106, 340, 572, 2318, 473, 3760, 134, 316, 796, 3405, 229, 1230, 163, 760, 1200, 1657, 1377, 540, 2573, 3295, 3208, 709, 2227, 2531, 352, 1941, 97, 1483, 1004, 2424, 1430, 371, 1783, 3738, 1379, 1620, 203, 3274, 2930, 2825, 2779, 3632, 1643, 3937, 1575, 1909, 2649, 1836, 728, 2587, 1522, 1672, 225, 537, 1937, 4006, 3751, 2310, 803, 631, 3423, 48, 853, 1989, 1862, 3750, 2803, 2787, 4069, 149, 3438, 305, 1488, 426, 841, 3922, 3446]
+#emotion_neurons = [1162, 179, 3982, 1134, 2698, 3494, 3523, 732, 4048, 669, 490, 2298, 3399, 4033, 1100, 3022, 1920, 1344, 1728, 1506, 1517, 1827, 2872, 3106, 340, 572, 2318, 473, 3760, 134, 316, 796, 3405, 229, 1230, 163, 760, 1200, 1657, 1377, 540, 2573, 3295, 3208, 709, 2227, 2531, 352, 1941, 97, 1483, 1004, 2424, 1430, 371, 1783, 3738, 1379, 1620, 203, 3274, 2930, 2825, 2779, 3632, 1643, 3937, 1575, 1909, 2649, 1836, 728, 2587, 1522, 1672, 225, 537, 1937, 4006, 3751, 2310, 803, 631, 3423, 48, 853, 1989, 1862, 3750, 2803, 2787, 4069, 149, 3438, 305, 1488, 426, 841, 3922, 3446]
 print('Using emotion xfer on %d neurons' % len(emotion_neurons))
 #for n in emotion_neurons:
 #    print('\t%d:\t%.3f/%.3f' % (n, emotion_hidden_state[n], emotion_cell_state[n]))
@@ -295,9 +297,27 @@ model.emotion_neurons = emotion_neurons[:args.num_emotion_neurons]
 model.emotion_hidden_state = emotion_hidden_state
 model.emotion_cell_state = emotion_cell_state
 # How much do we boost?
-model.hidden_boost_factor = 0.0
+model.hidden_boost_factor = 1.0
 model.cell_boost_factor = 1.0
 # Do we average values, or over-write (default is overwrite)
+model.average_cell_value = False
+
+# TODO -- if supplied, load "sentiment vector" and apply it to the hidden state.
+# This is the average in Pos - Neg dimension across neurons.
+# TODO -- add multiple to emotion vector (can make it negative)
+# TODO -- if applied to hidden state... make sure we clip final values
+if args.emotion_vector:
+    print('Use emotion vector %s' % args.emotion_vector)
+    emotion_vector = np.load(args.emotion_vector)
+    #emotion_vector *= 5.0 # can increase, or take in a different direction?
+    print(emotion_vector)
+    print(np.argsort(emotion_vector)[-20:])
+    print(emotion_vector[np.argsort(emotion_vector)])
+    # Add to hidden or cell state -- depending on the model.
+    model.use_added_hidden_state = True
+    model.added_hidden_state_vector = torch.from_numpy(emotion_vector * -10.0).float().cuda()
+    model.use_added_cell_state = True
+    model.added_cell_state_vector = torch.from_numpy(emotion_vector * -30.0).float().cuda()
 
 # Run through text -- with attempted emotion transfer
 print('\nText autoencoder -- attempt emotion xfer')

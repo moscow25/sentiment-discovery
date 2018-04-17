@@ -166,9 +166,20 @@ def transform(model, text):
         labels = (np.concatenate(labels).flatten())
     print('%0.3f seconds to transform %d examples' %
                   (time.time() - tstart, n))
-    return features_hidden, labels
-#    return features, labels
-#    return features_xform, labels
+    f = features
+#    f = features_xform
+#    f = features_hidden
+
+    # For fun, also show the vector of POS - NEG == simply from the means of these distributions
+    pos_sum = np.sum(labels)
+    pos_labels_average = f * labels.reshape((labels.shape[0],1))
+    pos_labels_average = np.sum(pos_labels_average, axis=0) / pos_sum
+    neg_sum = np.sum(-1.0 * (labels - 1.0))
+    neg_labels_average = f * (-1.0 * (labels - 1.0)).reshape(((-1.0 * (labels - 1.0)).shape[0],1))
+    neg_labels_average = np.sum(neg_labels_average, axis=0) / neg_sum
+    labels_ave_vector = pos_labels_average - neg_labels_average
+
+    return f, labels, labels_ave_vector
 
 def score_and_predict(model, X, Y):
     '''
@@ -328,17 +339,35 @@ print('writing results to '+save_root)
 # featurize train, val, test or use previously cached features if possible
 print('transforming train')
 if not (os.path.exists(os.path.join(save_root, 'trXt.npy')) and args.use_cached):
-    trXt, trY = transform(model, train_data)
+    trXt, trY, trAve = transform(model, train_data)
     np.save(os.path.join(save_root, 'trXt'), trXt)
     np.save(os.path.join(save_root, 'trY'), trY)
 else:
     trXt = np.load(os.path.join(save_root, 'trXt.npy'))
     trY = np.load(os.path.join(save_root, 'trY.npy'))
+
+# Hack -- save average values of Pos - Neg in vector space 
+# NOTE: We want to limit averages vector to large activations. Choose a number -- copy those.
+num_top = 200
+top_pos = np.argsort(np.abs(trAve))[-1*num_top:]
+print('Top %d neurons in trAve vector: %s' % (num_top, top_pos))
+topAve = np.zeros_like(trAve)
+for idx in top_pos:
+   topAve[idx] = trAve[idx]
+print(np.argsort(topAve))
+print(topAve[np.argsort(topAve)])
+topAve = trAve
+
+# Save the vector -- which can be applied directly on Negative/Neutral hidden state to make it more positive?
+topAvePath = os.path.join(save_root, 'topAveVector')
+print('Saving topAveVector for top %d neurons: %s' % (num_top, topAvePath))
+np.save(topAvePath, topAve)
+
 vaXt, vaY = None, None
 if val_data is not None:
     print('transforming validation')
     if not (os.path.exists(os.path.join(save_root, 'vaXt.npy')) and args.use_cached):
-        vaXt, vaY = transform(model, val_data)
+        vaXt, vaY, vaAve = transform(model, val_data)
         np.save(os.path.join(save_root, 'vaXt'), vaXt)
         np.save(os.path.join(save_root, 'vaY'), vaY)
     else:
@@ -348,7 +377,7 @@ teXt, teY = None, None
 if test_data is not None:
     print('transforming test')
     if not (os.path.exists(os.path.join(save_root, 'teXt.npy')) and args.use_cached):
-        teXt, teY = transform(model, test_data)
+        teXt, teY, teAve = transform(model, test_data)
         np.save(os.path.join(save_root, 'teXt'), teXt)
         np.save(os.path.join(save_root, 'teY'), teY)
     else:
