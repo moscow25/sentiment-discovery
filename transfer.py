@@ -75,8 +75,14 @@ if args.fp16:
 # load char embedding and recurrent encoder for featurization
 with open(args.load_model, 'rb') as f:
     sd = torch.load(f)
+    print(sd.keys())
+    # Hack -- extra transform.
+    extra_transform = nn.Linear(args.nhid, args.nhid).cuda()
+    extra_transform.load_state_dict(sd['cell_transform'], strict=True)
     if 'encoder' in sd:
         sd = sd['encoder']
+
+#print(sd.keys())
 
 try:
     model.load_state_dict(sd)
@@ -85,6 +91,10 @@ except:
     apply_weight_norm(model.rnn)
     model.load_state_dict(sd)
     remove_weight_norm(model)
+
+# Hack -- extra transform.
+#extra_transform = nn.Sequential(nn.Linear(args.nhid, args.nhid), nn.Tanh()).cuda()
+#extra_transform.load_state_dict(sd['hidden_transform'], strict)
 
 def transform(model, text):
     '''
@@ -121,13 +131,21 @@ def transform(model, text):
             n += batch_size
             model.rnn.reset_hidden(batch_size)
             # extract batch of features from text batch
-            cell = model(text_batch, length_batch).float()
+            hidden, cell = model(text_batch, seq_len=length_batch, get_hidden=True)
+            hidden = hidden.float()
+            cell = cell.float()
             if first_feature:
+                features_hidden = []
                 features = []
+                features_xform = []
                 first_feature = False
                 labels = []
             labels.append(labels_batch.data.cpu().numpy())
+            features_hidden.append(hidden.data.cpu().numpy())
             features.append(cell.data.cpu().numpy())
+            #print(cell)
+            #print(extra_transform(cell))
+            features_xform.append(extra_transform(cell).data.cpu().numpy())
 
             num_char = length_batch.sum().data[0]
 
@@ -138,15 +156,19 @@ def transform(model, text):
 
             s_per_batch = total_time / (i+1)
             timeleft = (len_ds - (i+1)) * s_per_batch
-            ch_per_s = num_char / elapsed_time
+            ch_per_s = num_char / (elapsed_time + 1)
             print('batch {:5d}/{:5d} | ch/s {:.2E} | time {:.2E} | time left {:.2E}'.format(i, len_ds, ch_per_s, elapsed_time, timeleft))
 
     if not first_feature:
+        features_hidden = (np.concatenate(features_hidden))
         features = (np.concatenate(features))
+        features_xform = (np.concatenate(features_xform))
         labels = (np.concatenate(labels).flatten())
     print('%0.3f seconds to transform %d examples' %
                   (time.time() - tstart, n))
-    return features, labels
+    return features_hidden, labels
+#    return features, labels
+#    return features_xform, labels
 
 def score_and_predict(model, X, Y):
     '''
