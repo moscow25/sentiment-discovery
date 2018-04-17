@@ -72,7 +72,8 @@ class RNNAutoEncoderModel(nn.Module):
         self.emotion_cell_state = []
         # Boost promotion -- or turn off with 0.0
         self.hidden_boost_factor = 1.0
-        self.cell_boost_factor = 1.0
+        self.cell_boost_factor = 0.0
+        self.average_cell_value = True # average, instead of replace?
 
     def forward(self, input, reset_mask=None, temperature=0.):
         if self.freeze:
@@ -86,12 +87,15 @@ class RNNAutoEncoderModel(nn.Module):
 
         # If we want to manipulate neurons [from outside, N=1, etc]
         if self.emotion_neurons:
-            print('-------\nChanging cells: %s' % self.emotion_neurons)
+            #print('-------\nChanging cells: %s' % self.emotion_neurons)
             for n in self.emotion_neurons:
                 hval = self.emotion_hidden_state[n]
                 cval = self.emotion_cell_state[n]
                 if self.hidden_boost_factor != 0.0:
-                    encoder_hidden[0][0][0][n] = hval * self.hidden_boost_factor
+                    v = hval * self.hidden_boost_factor
+                    if self.average_cell_value:
+                        v = (v + encoder_hidden[0][0][0][n]) / 2.0
+                    encoder_hidden[0][0][0][n] = v
                 if self.cell_boost_factor != 0.0:
                     encoder_hidden[1][0][0][n] = cval * self.cell_boost_factor
 
