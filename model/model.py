@@ -151,11 +151,11 @@ class RNNAutoEncoderModel(nn.Module):
             sd['decoder'] = self.encoder
         else:
             sd['decoder'] = self.decoder.state_dict(prefix=prefix, keep_vars=keep_vars)
-        if self.use_latent_hidden or self.transform_latent_hidden:
+        if self.use_latent_hidden and self.transform_latent_hidden:
             sd['hidden_transform'] = self.latent_hidden_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
         else:
             sd['hidden_transform'] = []
-        if self.use_cell_hidden or self.transform_cell_hidden:
+        if self.use_cell_hidden and self.transform_cell_hidden:
             sd['cell_transform'] = self.latent_cell_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
         else:
             sd['cell_transform'] = []
