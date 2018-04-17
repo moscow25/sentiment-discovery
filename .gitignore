@@ -9,6 +9,10 @@ __pycache__/
 # C extensions
 *.so
 
+# Data -- not correct but saves space for now
+*.csv
+*.npy
+
 # Distribution / packaging
 .Python
 build/

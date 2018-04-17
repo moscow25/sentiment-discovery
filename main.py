@@ -319,8 +319,9 @@ def train(total_iters=0):
             print('\n'.join([''.join(cleanup_text(text)) for text in encoder_text[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
             print('-------')
             print('\n'.join([''.join(cleanup_text(text)) for text in decoder_text[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
-            print('-------')
-            print('\n'.join([''.join(cleanup_text(text)) for text in sampled_out[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
+            # TODO: Decode sampled_out string via char conversion 
+            #print('-------')
+            #print('\n'.join([''.join(cleanup_text(text)) for text in sampled_out[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
 
         #loss = criterion(output.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
         loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())

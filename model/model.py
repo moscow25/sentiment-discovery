@@ -46,6 +46,13 @@ class RNNAutoEncoderModel(nn.Module):
 #            decoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
 #            nlayers=nlayers, dropout=dropout)
             self.decoder = decoder
+
+        # Do we transform the hidden state in decoder? Hidden or cell?
+        self.use_latent_hidden = use_latent_hidden
+        self.transform_latent_hidden = transform_latent_hidden
+        self.use_cell_hidden = use_cell_hidden
+        self.transform_cell_hidden = transform_cell_hidden
+
         # Transform final hidden state (TanH so that it's in bounds)
         # Option -- initialize hidden transfor to something like the identity matrix -- tricky with Tanh() after
         if init_transform_id:
@@ -55,30 +62,30 @@ class RNNAutoEncoderModel(nn.Module):
         else:
             # Else initialize with random weights
             self.latent_hidden_transform = nn.Sequential(nn.Linear(nhid, nhid), nn.Tanh())
+        if not self.use_latent_hidden or not self.transform_latent_hidden:
+            print('Latent hidden created but not used')
+            self.latent_hidden_transform = None 
         # Transform cell state [maybe not necessary]
         self.latent_cell_transform = nn.Linear(nhid, nhid)
         if init_transform_id:
             self.latent_cell_transform.weight.data.copy_(torch.eye(nhid))
-
-        # Do we transform the hidden state in decoder? Hidden or cell?
-        self.use_latent_hidden = use_latent_hidden
-        self.transform_latent_hidden = transform_latent_hidden
-        self.use_cell_hidden = use_cell_hidden
-        self.transform_cell_hidden = transform_cell_hidden
+        if not self.use_cell_hidden or not self.transform_cell_hidden:
+            print('Latent cell created but not used')
+            self.latent_cell_transform = None
 
         # If we overwrite state [from emotion, etc] -- values set from outside the house
-        self.emotion_neurons = []
-        self.emotion_hidden_state = []
-        self.emotion_cell_state = []
+        self.emotion_neurons = None
+        self.emotion_hidden_state = None
+        self.emotion_cell_state = None
         # Boost promotion -- or turn off with 0.0
         self.hidden_boost_factor = 1.0
         self.cell_boost_factor = 0.0
         self.average_cell_value = False # True # average, instead of replace?
         # Externally -- can also push vector simply to add to hidden state [for translation in pre-computed dimension]
         self.use_added_hidden_state = False
-        self.added_hidden_state_vector = []
+        self.added_hidden_state_vector = None
         self.use_added_cell_state = False
-        self.added_cell_state_vector = []
+        self.added_cell_state_vector = None
 
     def forward(self, input, reset_mask=None, temperature=0.):
         if self.freeze:
@@ -154,6 +161,7 @@ class RNNAutoEncoderModel(nn.Module):
             cell = self.latent_cell_transform(cell)
 
         #emb = [[self.latent_hidden_transform(emb[0][0]), self.latent_cell_transform(emb[1][0])]]
+        #print((hid, cell))
         return [[hid, cell]]
 
     def get_text_from_outputs(self, out, temperature=0):
@@ -186,8 +194,14 @@ class RNNAutoEncoderModel(nn.Module):
             sd['decoder'] = sd['encoder']
         else:
             sd['decoder'] = self.decoder.state_dict(prefix=prefix, keep_vars=keep_vars)
-        sd['hidden_transform'] = self.latent_hidden_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
-        sd['cell_transform'] = self.latent_cell_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
+        if self.use_latent_hidden or self.transform_latent_hidden:
+            sd['hidden_transform'] = self.latent_hidden_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
+        else:
+            sd['hidden_transform'] = []
+        if self.use_cell_hidden or self.transform_cell_hidden:
+            sd['cell_transform'] = self.latent_cell_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
+        else:
+            sd['cell_transform'] = []
         return sd
 
     def load_state_dict(self, sd, strict=True):
