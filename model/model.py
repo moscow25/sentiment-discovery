@@ -13,7 +13,7 @@ def sample(out, temperature=0.1, cpu=False):
         char_idx = torch.max(out.squeeze().data, 0)[1]
     else:
         out = out.float().squeeze().div(temperature)
-        char_weights = F.softmax(out).data
+        char_weights = F.softmax(out, -1).data
 #        char_weights = out.exp()
         if cpu:
             char_weights = char_weights.cpu()
