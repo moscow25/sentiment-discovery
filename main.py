@@ -317,7 +317,7 @@ def train(total_iters=0):
 
         data, targets, reset_mask = get_batch(batch)
         #output, hidden = model(data, reset_mask=reset_mask)
-        model.decoder.teacher_force = should_teacher_force()
+        rnn_model.decoder.teacher_force = should_teacher_force()
         output_enc, output_dec, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
 
         if i % 1000 == 0:
