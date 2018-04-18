@@ -5,6 +5,7 @@ import time
 import math
 import torch
 import torch.nn as nn
+import random
 from torch.autograd import Variable
 
 from fp16 import FP16_Module, FP16_Optimizer
@@ -82,6 +83,10 @@ parser.add_argument('--decoder_xform_hidden', action='store_true',
                     help='Linear transform (with a tanh()) on hidden to decoder')
 parser.add_argument('--decoder_xform_cell', action='store_true',
                     help='Linear transform on cell state to decoder')
+
+# Control for Variable Teacher Forcing @nicky
+parser.add_argument('--force_ctrl', type=float, default=0.,
+                    help='percentage of training with no teacher forcing. (0.2=20% no teacher forcing)')
 
 # Add dataset args to argparser and set some defaults
 data_config, data_parser = configure_data(parser)
@@ -276,6 +281,10 @@ def cleanup_text(text):
     t = t.replace('\t', ' ')
     return ''.join(x for x in t if (31 < ord(x) < 127))
 
+def should_teacher_force():
+    p = random.random()
+    return p >= args.force_ctrl
+
 def evaluate(data_source):
     # Turn on evaluation mode which disables dropout.
     model.eval()
@@ -308,6 +317,7 @@ def train(total_iters=0):
 
         data, targets, reset_mask = get_batch(batch)
         #output, hidden = model(data, reset_mask=reset_mask)
+        model.decoder.teacher_force = should_teacher_force()
         output_enc, output_dec, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
 
         if i % 1000 == 0:
