@@ -21,8 +21,8 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
-sns.set_style({'font.family': 'monospace'})
+#import seaborn as sns
+#sns.set_style({'font.family': 'monospace'})
 
 
 parser = argparse.ArgumentParser(description='PyTorch Sentiment Discovery Generation/Visualization')

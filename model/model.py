@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+import torch.nn.functional as F
 
 from apex import RNN
 #import QRNN
@@ -11,7 +12,9 @@ def sample(out, temperature=0.1, cpu=False):
 #        print('WARNING: Temp=0 is broken. Will not return correct results')
         char_idx = torch.max(out.squeeze().data, 0)[1]
     else:
-        char_weights = out.float().squeeze().data.div(temperature).exp()
+        out = out.float().squeeze().div(temperature)
+        char_weights = F.softmax(out).data
+#        char_weights = out.exp()
         if cpu:
             char_weights = char_weights.cpu()
         char_idx = torch.multinomial(char_weights, 1)
@@ -28,8 +31,10 @@ class RNNAutoEncoderModel(nn.Module):
     def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
                 tie_weights=True, freeze=False, teacher_force=True,
                 attention=False, init_transform_id=False,
-                use_latent_hidden=False, transform_latent_hidden=False,
-                use_cell_hidden=False, transform_cell_hidden=False):
+                #use_latent_hidden=False, transform_latent_hidden=False,
+                use_latent_hidden=True, transform_latent_hidden=True,
+                #use_cell_hidden=False, transform_cell_hidden=False):
+                use_cell_hidden=True, transform_cell_hidden=True):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
