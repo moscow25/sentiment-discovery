@@ -386,7 +386,7 @@ class RNNFeaturizer(nn.Module):
             for i in range(input.size(0)):
                 emb = self.drop(self.encoder(input[i]))
                 _, hidden = self.rnn(emb.unsqueeze(0), collectHidden=True)
-                cell = self.get_features(hidden)
+                cell = self.get_features(hidden, get_hidden=False)
                 if get_hidden:
                     hidden = self.get_features(hidden, get_hidden=True)
                 if i > 0:
@@ -401,7 +401,8 @@ class RNNFeaturizer(nn.Module):
 
         return cell
 
-    def get_features(self, hidden, get_hidden=True):
+    # Passed a pair of hidden, cell -- choose the right one and get features (final values)
+    def get_features(self, hidden, get_hidden=False):
         if get_hidden:
             cell = hidden[0]
         else:
