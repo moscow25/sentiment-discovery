@@ -88,6 +88,12 @@ parser.add_argument('--decoder_xform_cell', action='store_true',
 parser.add_argument('--force_ctrl', type=float, default=0.,
                     help='percentage of training with no teacher forcing. (0.2=20% no teacher forcing)')
 
+# Resume training arguments
+parser.add_argument('--save_optim', action='store_true',
+                    help='save optimizer in addtion to model')
+parser.add_argument('--load_optim', type=str, default='',
+                    help='path to load optimizer to resume training')
+
 # Add dataset args to argparser and set some defaults
 data_config, data_parser = configure_data(parser)
 data_config.set_defaults(data_set_type='unsupervised', transpose=True)
@@ -246,6 +252,9 @@ if train_data is not None:
     num_iters = len(train_data) * args.epochs
     LR = LinearLR(optim, num_iters)
 
+if args.load_optim != '':
+    optim.load_state_dict(torch.load(args.load_optim))
+
 # wrap model for distributed training
 if args.world_size > 1:
     model = DDP(model)
@@ -393,12 +402,17 @@ def train(total_iters=0):
             if args.rank < 1:
                 fname = os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(total_iters),))
                 print('saving model to %s' % fname)
-                with open(os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(total_iters),)), 'wb') as f:
+                with open(fname, 'wb') as f:
                     sd = model.state_dict()
                     sd['rng'] = torch.get_rng_state()
                     if torch.cuda.is_available():
                         sd['cuda_rng'] = torch.cuda.get_rng_state()
                     torch.save(sd, f)
+                if args.save_optim:
+                    optimname = os.path.join(os.path.splitext(args.save)[0], 'optim', 'e%s.pt'%(str(total_iters),))
+                    with open(optimname, 'wb') as f:
+                        sd = optim.state_dict()
+                        torch.save(sd, f)
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
         total_iters += 1
@@ -410,8 +424,11 @@ lr = args.lr
 best_val_loss = None
 
 # If saving process intermittently create directory for saving
-if args.save_iters > 0 and not os.path.exists(os.path.splitext(args.save)[0]) and args.rank < 1:
-    os.makedirs(os.path.splitext(args.save)[0])
+if args.save_iters > 0:
+    if not os.path.exists(os.path.splitext(args.save)[0]) and args.rank < 1:
+        os.makedirs(os.path.splitext(args.save)[0])
+    if not os.path.exists(os.path.join(os.path.splitext(args.save)[0], 'optim')) and args.rank < 1:
+        os.makedirs(os.path.join(os.path.splitext(args.save)[0], 'optim'))
 
 # At any point you can hit Ctrl + C to break out of training early.
 try:

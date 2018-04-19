@@ -170,8 +170,10 @@ class RNNAutoEncoderModel(nn.Module):
         self.encoder.load_state_dict(sd['encoder'], strict)
         if not self.tied:
             self.decoder.load_state_dict(sd['decoder'], strict)
-        self.latent_hidden_transform.load_state_dict(sd['hidden_transform'], strict)
-        self.latent_cell_transform.load_state_dict(sd['cell_transform'], strict)
+        if self.latent_hidden_transform is not None:
+            self.latent_hidden_transform.load_state_dict(sd['hidden_transform'], strict)
+        if self.latent_cell_transform is not None:
+            self.latent_cell_transform.load_state_dict(sd['cell_transform'], strict)
 
 # Placeholder QRNN wrapper -- to support detach/reset/init RNN state
 #class myQRNN(QRNN):
