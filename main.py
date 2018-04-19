@@ -183,6 +183,13 @@ if args.load != '':
     sd = torch.load(args.load, map_location=lambda storage, loc: storage)
     #@nicky: here's how to fix the reloading problem I was talking about
     #sd['decoder']=sd['encoder']
+    if 'rng' in sd:
+        torch.set_rng_state(sd['rng'])
+        del sd['rng']
+    if 'cuda_rng' in sd:
+        if torch.cuda.is_available():
+            torch.cuda.set_rng_state(sd['cuda_rng'])
+        del sd['cuda_rng']
 
     #sd = torch.load(args.load)
     try:
@@ -387,7 +394,11 @@ def train(total_iters=0):
                 fname = os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(total_iters),))
                 print('saving model to %s' % fname)
                 with open(os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(total_iters),)), 'wb') as f:
-                    torch.save(model.state_dict(), f)
+                    sd = model.state_dict()
+                    sd['rng'] = torch.get_rng_state()
+                    if torch.cuda.is_available():
+                        sd['cuda_rng'] = torch.cuda.get_rng_state()
+                    torch.save(sd, f)
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
         total_iters += 1
@@ -420,7 +431,11 @@ try:
         # Save the model if the validation loss is the best we've seen so far.
         if not best_val_loss or val_loss < best_val_loss and args.rank <= 0:
             with open(args.save, 'wb') as f:
-                torch.save(model.state_dict(), f)
+                sd = model.state_dict()
+                sd['rng'] = torch.get_rng_state()
+                if torch.cuda.is_available():
+                    sd['cuda_rng'] = torch.cuda.get_rng_state()
+                torch.save(sd, f)
             best_val_loss = val_loss
         if torch.cuda.is_available():
             torch.cuda.synchronize()
