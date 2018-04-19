@@ -403,7 +403,7 @@ def train(total_iters=0):
                 fname = os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(total_iters),))
                 print('saving model to %s' % fname)
                 with open(fname, 'wb') as f:
-                    sd = model.state_dict()
+                    sd = rnn_model.state_dict()
                     sd['rng'] = torch.get_rng_state()
                     if torch.cuda.is_available():
                         sd['cuda_rng'] = torch.cuda.get_rng_state()
@@ -448,7 +448,7 @@ try:
         # Save the model if the validation loss is the best we've seen so far.
         if not best_val_loss or val_loss < best_val_loss and args.rank <= 0:
             with open(args.save, 'wb') as f:
-                sd = model.state_dict()
+                sd = rnn_model.state_dict()
                 sd['rng'] = torch.get_rng_state()
                 if torch.cuda.is_available():
                     sd['cuda_rng'] = torch.cuda.get_rng_state()
@@ -464,12 +464,12 @@ except KeyboardInterrupt:
 # Load the best saved model.
 if os.path.exists(args.save):
     with open(args.save, 'rb') as f:
-        model.load_state_dict(torch.load(f))
+        rnn_model.load_state_dict(torch.load(f))
 
 if not args.no_weight_norm and args.rank <= 0:
     remove_weight_norm(rnn_model)
     with open(args.save, 'wb') as f:
-        torch.save(model.state_dict(), f)
+        torch.save(rnn_model.state_dict(), f)
 
 if torch.cuda.is_available():
     torch.cuda.synchronize()
