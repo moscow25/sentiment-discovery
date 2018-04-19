@@ -75,6 +75,10 @@ if args.fp16:
 # load char embedding and recurrent encoder for featurization
 with open(args.load_model, 'rb') as f:
     sd = torch.load(f)
+    if 'rng' in sd:
+        del sd['rng']
+    if 'cuda_rng' in sd:
+        del sd['cuda_rng']
     if 'encoder' in sd:
         sd = sd['encoder']
     if 'rnn' not in sd:
@@ -109,7 +113,7 @@ def transform(model, text):
         text = Variable(text).long()
         timesteps = Variable(timesteps).long()
         labels = Variable(labels).long()
-        return text.cuda().t(), labels.cuda(), timesteps.cuda()
+        return text.cuda().t(), labels.cuda(), timesteps.cuda()-1
 
     tstart = start = time.time()
     n = 0
@@ -131,7 +135,7 @@ def transform(model, text):
             labels.append(labels_batch.data.cpu().numpy())
             features.append(cell.data.cpu().numpy())
 
-            num_char = length_batch.sum().data[0]
+            num_char = length_batch.sum().item()
 
             end = time.time()
             elapsed_time = end - start
@@ -140,7 +144,10 @@ def transform(model, text):
 
             s_per_batch = total_time / (i+1)
             timeleft = (len_ds - (i+1)) * s_per_batch
-            ch_per_s = num_char / elapsed_time
+            if elapsed_time == 0:
+                ch_per_s = num_char
+            else:
+                ch_per_s = num_char / elapsed_time
             print('batch {:5d}/{:5d} | ch/s {:.2E} | time {:.2E} | time left {:.2E}'.format(i, len_ds, ch_per_s, elapsed_time, timeleft))
 
     if not first_feature:

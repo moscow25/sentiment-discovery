@@ -54,6 +54,11 @@ if args.fp16:
 with open(args.load_model, 'rb') as f:
     sd = torch.load(f)
 
+if 'rng' in sd:
+    del sd['rng']
+if 'cuda_rng' in sd:
+    del sd['cuda_rng']
+
 try:
     model.load_state_dict(sd)
 except:

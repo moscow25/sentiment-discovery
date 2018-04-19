@@ -86,6 +86,12 @@ if args.fp16:
     model.half()
 with open(args.load_model, 'rb') as f:
     sd = torch.load(f)
+
+if 'rng' in sd:
+    del sd['rng']
+if 'cuda_rng' in sd:
+    del sd['cuda_rng']
+
 try:
     print('try load w/o weightnorm')
     model.load_state_dict(sd)
