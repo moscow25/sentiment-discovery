@@ -12,10 +12,10 @@
 
 # Code borrowed from PyTorch OpenNMT example
 # https://github.com/pytorch/examples/blob/master/OpenNMT/onmt/Beam.py
-
 import torch
-from collections import Iterable
+from torch.autograd import Variable
 
+Iterable = (tuple, list)
 
 class Beam(object):
     """Ordered beam of candidate outputs."""
@@ -64,7 +64,7 @@ class Beam(object):
     #
     # Returns: True if beam search is complete.
 
-    def advance(self, workd_llk):
+    def advance(self, word_llk):
         """Advance the beam."""
         num_tokens = word_llk.size(-1)
 
@@ -129,7 +129,6 @@ class BeamDecoder(object):
         self.vocab_start = vocab_start
         self.vocab_end = vocab_end
         self.cuda = cuda
-        self.layer_first = layer_first
         self.n_best = n_best
         # TODO: handle advanced/modular indexing later
         #self.hidden_batch_dim = hidden_batch_dim
@@ -137,16 +136,24 @@ class BeamDecoder(object):
 
 
     def bottle(self, m, batch_size):
-        return m.view(batch_size * self.beam_size, -1)
+        if not isinstance(m, Iterable):
+            size = list(m.size())
+            reshape_size = [self.beam_size*batch_size]+size[2:]
+            return m.view(*reshape_size)
+        return tuple([self.bottle(_m, batch_size) for _m in m]) 
 
     def unbottle(self, m, batch_size):
-        return m.view(self.beam_size, batch_size, -1)
+        if not isinstance(m, Iterable):
+            size = list(m.size())
+            reshape_size = [self.beam_size, batch_size]+size[1:]
+            return m.view(*reshape_size)
+        return tuple([self.unbottle(_m, batch_size) for _m in m])   
 
     def var(self, a): return Variable(a)
 
     def rvar(self, a):
         repeat_dims = [1] * a.dim()
-        repeat_dims = [self.beam_size] + repeat_dims
+        repeat_dims[self.hidden_batch_dim] = self.beam_size
         return self.var(a.data.repeat(*repeat_dims))
 
     def rstates(self, s):
@@ -155,9 +162,10 @@ class BeamDecoder(object):
         return tuple([self.rstates(_s) for _s in s])
 
     def state_update(self, s, batch_idx, beam_positions):
-        size = list(_s.size())
-        reshape_size = [self.beam_size, int(size[0]//self.beam_size)]+size[1:]
-        sentStates = _s.view(*reshape_size)[:, batch_idx]
+        # size = list(_s.size())
+        # reshape_size = [self.beam_size, int(size[0]//self.beam_size)]+size[1:]
+        # sentStates = _s.view(*reshape_size)[:, batch_idx]
+        sentStates = s[:, batch_idx]
         sentStates.data.copy_(sentStates.data.index_select(0, beam_positions))
 
     def beam_state_update(self, s, batch_idx, beam_positions):
@@ -175,8 +183,7 @@ class BeamDecoder(object):
         # # return tuple(state)
 
     def reset_beam_decoder(self, batch_size, states, init_input=None):
-        self.beams=[Beam(self.beam_size, n_best=self.n_best,
-                         cuda=self.cuda,
+        self.beams=[Beam(self.beam_size, cuda=self.cuda,
                          vocab_pad=self.vocab_pad,
                          vocab_start=self.vocab_start,
                          vocab_end=self.vocab_end,
@@ -185,10 +192,13 @@ class BeamDecoder(object):
         return self.get_input(), self.rstates(states)
 
     def step(self,dec_out,state):
-        unbottled=self.unbottle(dec_out,len(self.beams))
+        batch_size = len(self.beams)
+        unbottled = self.unbottle(dec_out, batch_size)
+        beam_state = self.unbottle(state, batch_size)
         for j, b in enumerate(self.beams):
+            # get batch corresponding to beam
             b.advance(unbottled[:, j])
-            self.beam_state_update(state, j, b.get_current_origin())
+            self.beam_state_update(beam_state, j, b.get_current_origin())
         return self.get_input()
 
     def get_input(self):
@@ -199,13 +209,13 @@ class BeamDecoder(object):
 
     def get_hyp(self):
         """
-        returns k lists (where k = min(self.n_best, k))
+        returns k lists (where k = min(self.n_best, k)). Each list is of batch size and contains the kth best decoding for the batch.
         """
-        rtn=[[]]
         n_best=self.n_best
+        rtn=[[] for _ in range(n_best)]
         for b in self.beams:
             scores, ks = b.sort_best()
-            for i, (times, k) in enumerate(ks[:n_best]):
-                hyp = b.get_hyp(times,k)
+            for i, k in enumerate(ks[:n_best]):
+                hyp = b.get_hyp(k)
                 rtn[i].append(hyp)
         return rtn

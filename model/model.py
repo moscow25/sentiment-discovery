@@ -20,7 +20,7 @@ def sample(out, temperature=0.1, cpu=False, beam_step=None):
                 char_weights = char_weights.cpu()
             char_idx = torch.multinomial(char_weights, 1)
         return char_idx
-     else:
+    else:
         out = out.float().squeeze()
         if temperature > 0:
             out = out.div(temperature)
@@ -269,7 +269,12 @@ class RNNDecoder(nn.Module):
         # TODO: init beam
         batch_size = input.size(1)
         if beam is not None:
-            sampled_out, hidden_init = beam.reset_beam_decoder(batch_size, self.rnn.get_hidden(), input[0])
+            hidden_init = self.rnn.get_hidden()
+            if context is not None:
+                hidden_init = (hidden_init, context)
+            sampled_out, hidden_init = beam.reset_beam_decoder(batch_size, hidden_init, input[0])
+            if context is not None:
+                hidden_init, context = hidden_init
             self.rnn.set_hidden(hidden_init)
             del hidden_init
 
@@ -313,7 +318,10 @@ class RNNDecoder(nn.Module):
             out_txt.append(sampled_out.data)
         
 #        print([x.size() for x in out_txt])
-        out_txt = torch.stack(out_txt)
+        if beam is not None:
+            out_txt = beam.get_hyp()
+        else:
+            out_txt = torch.stack(out_txt)
         outs = torch.cat(outs)
 #        outs = torch.stack(outs)
 #        outs.register_hook(lambda x:print('hooked'))

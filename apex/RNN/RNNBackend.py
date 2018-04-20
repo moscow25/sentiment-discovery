@@ -270,7 +270,7 @@ class stackedRNN(nn.Module):
         for i, rnn in enumerate(self.rnns):
             rnn.set_hidden(hidden[i])
 
-    def get_hidden(self, hidden):
+    def get_hidden(self):
         hiddens = []
         for rnn in self.rnns:
             hiddens.append(rnn.get_hidden())

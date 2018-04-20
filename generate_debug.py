@@ -24,6 +24,8 @@ import matplotlib.pyplot as plt
 #import seaborn as sns
 #sns.set_style({'font.family': 'monospace'})
 
+import beam_search
+
 
 parser = argparse.ArgumentParser(description='PyTorch Sentiment Discovery Generation/Visualization')
 
@@ -71,7 +73,6 @@ parser.add_argument('--beam', type=int, default=1,
                     help='beam search decoder if value > 1. Default: 1 (no beam search)')
 parser.add_argument('--topk', type=int, default=1,
                     help='display top k decodings from beam (must be <= `--beam` and >=1)')
-import parser
 args = parser.parse_args()
 
 args.data_size = 256
@@ -109,6 +110,7 @@ except:
     print([n for n,p in model.named_parameters()])
     model.load_state_dict(sd)
     remove_weight_norm(model)
+
 #try:
 #    model.load_state_dict(sd)
 #except:
@@ -119,7 +121,7 @@ except:
 
 beam = None
 if args.beam > 1:
-    beam = beam_search.BeamDecoder(args.beam, cuda=torch.cuda.is_available(), n_best=args.topk)
+    beam = beam_search.BeamDecoder(args.beam, cuda=torch.cuda.is_available(), n_best=args.topk, vocab_pad=ord(' '))
 
 def get_neuron_and_polarity(sd, neuron):
     """return a +/- 1 indicating the polarity of the specified neuron in the module"""
@@ -251,17 +253,25 @@ model.decoder.teacher_force = True
 
 #model.encoder.rnn.reset_hidden(1)
 
-forced_output = model(input, temperature=args.temperature, beam=beam)
-
+forced_output = model(input, temperature=args.temperature)
 forced_output = list(forced_output[-1].squeeze().cpu().numpy())
-unforced_output = list(unforced_output[-1].squeeze().cpu().numpy())
 forced_output = [chr(int(x)) for x in forced_output]
-unforced_output = [chr(int(x)) for x in unforced_output]
-
 print('-----forced output-----')
 print(''.join(forced_output))
 print('-----unforced output-----')
-print(''.join(unforced_output))
+if beam is None:
+    unforced_output = list(unforced_output[-1].squeeze().cpu().numpy())
+    unforced_output = [chr(int(x)) for x in unforced_output]
+    print(''.join(unforced_output))
+else:
+    unforced_output = list(unforced_output[-1])
+#    print (unforced_output[0][0])
+#    exit()
+    unforced_output = [''.join([chr(int(idx.cpu().data.item())) for idx in kth_best[0]]) for kth_best in unforced_output]
+#    unforced_output = [chr(int(x)) for x in unforced_output]
+    print(unforced_output)
+
+
 
 exit()
 
