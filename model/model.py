@@ -6,19 +6,26 @@ import torch.nn.functional as F
 from apex import RNN
 #import QRNN
 
-def sample(out, temperature=0.1, cpu=False):
+def sample(out, temperature=0.1, cpu=False, beam_step=None):
     # Temperature == 0 is broken [all results in 0-32 space, no printable characters. Use low temp > 0.]
-    if temperature == 0:
-#        print('WARNING: Temp=0 is broken. Will not return correct results')
-        char_idx = torch.max(out.squeeze().data, 0)[1]
-    else:
-        out = out.float().squeeze().div(temperature)
-        char_weights = F.softmax(out, -1).data
-#        char_weights = out.exp()
-        if cpu:
-            char_weights = char_weights.cpu()
-        char_idx = torch.multinomial(char_weights, 1)
-    return char_idx
+    if beam_step is None:
+        if temperature == 0:
+    #        print('WARNING: Temp=0 is broken. Will not return correct results')
+            char_idx = torch.max(out.squeeze().data, 0)[1]
+        else:
+            out = out.float().squeeze().div(temperature)
+            char_weights = F.softmax(out, -1).data
+    #        char_weights = out.exp()
+            if cpu:
+                char_weights = char_weights.cpu()
+            char_idx = torch.multinomial(char_weights, 1)
+        return char_idx
+     else:
+        out = out.float().squeeze()
+        if temperature > 0:
+            out = out.div(temperature)
+        out = F.log_softmax(out, -1)
+        return beam_step(out)
 
 def tie_params(module_src, module_dst):
 
@@ -291,6 +298,7 @@ class RNNDecoder(nn.Module):
 #            if i>=seq_len-2:
 #                hidden[1].register_hook(lambda x: print('hook3'))
 #                print(hidden[1].size())
+    
             cell = hidden[0]
             hidden = hidden[1]
             decoder_in = hidden
@@ -301,7 +309,7 @@ class RNNDecoder(nn.Module):
             out = self.decoder(decoder_in)
             outs.append(out)
 
-            sampled_out = sample(out, temperature).squeeze()
+            sampled_out = sample(out, temperature, beam_step=None if beam is None else lambda x: beam.step(x, self.rnn.get_hidden())).squeeze()
             out_txt.append(sampled_out.data)
         
 #        print([x.size() for x in out_txt])

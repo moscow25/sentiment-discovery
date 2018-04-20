@@ -192,11 +192,10 @@ class BeamDecoder(object):
         return self.get_input()
 
     def get_input(self):
-        tensor_list=[]
-        for j,b in enumerate(self.beams):
-            b.getCurrentState().view(-1)
-            tensor_list.append(b)
-        return self.var(torch.stack(tensor_list).contiguous().view(-1))
+        # tensor_list=[]
+        # for j,b in enumerate(self.beams):
+        #     tensor_list.append(b.get_current_state().view(-1))
+        return self.var(torch.cat([b.get_current_state().view(-1) for b in self.beams]).contiguous().view(-1))
 
     def get_hyp(self):
         """
