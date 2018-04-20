@@ -78,7 +78,7 @@ class RNNAutoEncoderModel(nn.Module):
             print('Latent cell created but not used')
             self.latent_cell_transform = None
 
-    def forward(self, input, reset_mask=None, temperature=0.):
+    def forward(self, input, reset_mask=None, temperature=0., beam=None):
         if self.freeze:
             with torch.no_grad():
                 encoder_output, encoder_hidden = self.encode_in(input, reset_mask)
@@ -87,7 +87,7 @@ class RNNAutoEncoderModel(nn.Module):
         emb = self.process_emb(encoder_hidden,
             use_latent_hidden=self.use_latent_hidden, transform_latent_hidden=self.transform_latent_hidden,
             use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden)
-        decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask, temperature)
+        decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask, temperature, beam)
         self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
         return encoder_output, decoder_output, sampled_out
 
@@ -95,13 +95,13 @@ class RNNAutoEncoderModel(nn.Module):
         out, (hidden, cell) = self.encoder(input, reset_mask=reset_mask)
         return out, (hidden, cell)
 
-    def decode_out(self, input, hidden_output, reset_mask=None, temperature=0):
+    def decode_out(self, input, hidden_output, reset_mask=None, temperature=0, beam=None):
         # print(hidden_output)
         # print(hidden_output[0].size())
         self.decoder.set_hidden(hidden_output)
         # NOTE: change here to remove teacher forcing
         # TODO: pass flags to use internal state (no teacher forcing)
-        out, (hidden, cell), sampled_out = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1], temperature=temperature)
+        out, (hidden, cell), sampled_out = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1], temperature=temperature, beam=beam)
         return out, (hidden, cell), sampled_out
 
     # placeholder
@@ -257,7 +257,8 @@ class RNNDecoder(nn.Module):
 
         self.teacher_force = teacher_force
 
-    def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0):
+    def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0, beam=None):
+        # TODO: init beam
         if detach:
             #print('detach')
             self.rnn.detach_hidden()

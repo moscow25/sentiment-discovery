@@ -67,6 +67,11 @@ parser.add_argument('--text', default='',
                     help='warm up generation with specified text first')
 parser.add_argument('--attention', action='store_true',
                     help='')
+parser.add_argument('--beam', type=int, default=1,
+                    help='beam search decoder if value > 1. Default: 1 (no beam search)')
+parser.add_argument('--topk', type=int, default=1,
+                    help='display top k decodings from beam (must be <= `--beam` and >=1)')
+import parser
 args = parser.parse_args()
 
 args.data_size = 256
@@ -111,6 +116,10 @@ except:
 #    apply_weight_norm(model.decoder.rnn, hook_child=False)
 #    model.load_state_dict(sd)
 #    remove_weight_norm(model)
+
+beam = None
+if args.beam > 1:
+    beam = beam_search.BeamDecoder(args.beam, cuda=torch.cuda.is_available(), n_best=args.topk)
 
 def get_neuron_and_polarity(sd, neuron):
     """return a +/- 1 indicating the polarity of the specified neuron in the module"""
@@ -236,13 +245,13 @@ hidden = model.encoder.rnn.init_hidden(1)
 input = Variable(torch.from_numpy(np.array([int(ord(c)) for c in input_text]))).cuda().long()
 input = input.view(-1, 1).contiguous()
 
-unforced_output = model(input, temperature=args.temperature)
+unforced_output = model(input, temperature=args.temperature, beam=beam)
 
 model.decoder.teacher_force = True
 
 #model.encoder.rnn.reset_hidden(1)
 
-forced_output = model(input, temperature=args.temperature)
+forced_output = model(input, temperature=args.temperature, beam=beam)
 
 forced_output = list(forced_output[-1].squeeze().cpu().numpy())
 unforced_output = list(unforced_output[-1].squeeze().cpu().numpy())
