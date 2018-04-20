@@ -258,10 +258,11 @@ class RNNDecoder(nn.Module):
         self.teacher_force = teacher_force
 
     def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0, beam=None):
+        """reset_mask and beam currently do not work together"""
         # TODO: init beam
         batch_size = input.size(1)
         if beam is not None:
-            sampled_out, hidden_init = beam.reset_beam_decoder(batch_size, self.rnn.get_hidden())
+            sampled_out, hidden_init = beam.reset_beam_decoder(batch_size, self.rnn.get_hidden(), input[0])
             self.rnn.set_hidden(hidden_init)
             del hidden_init
 

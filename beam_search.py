@@ -20,7 +20,7 @@ from collections import Iterable
 class Beam(object):
     """Ordered beam of candidate outputs."""
 
-    def __init__(self, size, vocab_pad=None, vocab_start=None, vocab_end=None, cuda=False):
+    def __init__(self, size, vocab_pad=None, vocab_start=None, vocab_end=None, cuda=False, init_input=None):
         """Initialize params."""
         self.size = size
         self.done = False
@@ -39,7 +39,7 @@ class Beam(object):
         # TODO: figure out what to do for padding substitute
         self.nextYs = [self.tt.LongTensor(size).fill_(self.pad)]
         # TODO: figure out what to do with first start
-        self.nextYs[0][0] = self.bos
+        self.nextYs[0][0] = self.bos if init_input is None else init_input.squeeze()
 
         # The attentions (matrix) for each time.
         self.attn = []
@@ -174,13 +174,14 @@ class BeamDecoder(object):
         #     # state.append(sentStates)
         # # return tuple(state)
 
-    def reset_beam_decoder(self, batch_size, states):
+    def reset_beam_decoder(self, batch_size, states, init_input=None):
         self.beams=[Beam(self.beam_size, n_best=self.n_best,
-                          cuda=self.cuda,
-                          vocab_pad=self.vocab_pad,
-                          vocab_start=self.vocab_start,
-                          vocab_end=self.vocab_end)
-                for __ in range(batch_size)]
+                         cuda=self.cuda,
+                         vocab_pad=self.vocab_pad,
+                         vocab_start=self.vocab_start,
+                         vocab_end=self.vocab_end,
+                         init_input=None if init_input is None else init_input[j])
+                for j in range(batch_size)]
         return self.get_input(), self.rstates(states)
 
     def step(self,dec_out,state):
