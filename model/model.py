@@ -259,6 +259,12 @@ class RNNDecoder(nn.Module):
 
     def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0, beam=None):
         # TODO: init beam
+        batch_size = input.size(1)
+        if beam is not None:
+            sampled_out, hidden_init = beam.reset_beam_decoder(batch_size, self.rnn.get_hidden())
+            self.rnn.set_hidden(hidden_init)
+            del hidden_init
+
         if detach:
             #print('detach')
             self.rnn.detach_hidden()
@@ -267,7 +273,7 @@ class RNNDecoder(nn.Module):
         seq_len = input.size(0)
         out_txt = [input[0].squeeze()]
         for i in range(seq_len):
-            if self.teacher_force or i == 0:
+            if beam is None and (self.teacher_force or i == 0):
                 x = input[i]
 #                print(x.size())
             else:

@@ -270,6 +270,12 @@ class stackedRNN(nn.Module):
         for i, rnn in enumerate(self.rnns):
             rnn.set_hidden(hidden[i])
 
+    def get_hidden(self, hidden):
+        hiddens = []
+        for rnn in self.rnns:
+            hiddens.append(rnn.get_hidden())
+        return hiddens
+
 class RNNCell(nn.Module):
     """
     RNNCell stub
@@ -406,6 +412,9 @@ class RNNCell(nn.Module):
             #if len(self.hidden[i].size()) != len(hid.size()):
             #    hid = hid.squeeze()
             self.hidden[i] = hid
+
+    def get_hidden(self):
+        return tuple(self.hidden)
 
     def forward(self, input):
         """

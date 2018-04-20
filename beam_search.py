@@ -14,6 +14,7 @@
 # https://github.com/pytorch/examples/blob/master/OpenNMT/onmt/Beam.py
 
 import torch
+from collections import Iterable
 
 
 class Beam(object):
@@ -121,7 +122,7 @@ class Beam(object):
         return hyp[::-1]
 
 class BeamDecoder(object):
-    def __init__(self, beam_size, vocab_pad=None, vocab_start=None, vocab_end=None, cuda=False, n_best=1, layer_first=False):
+    def __init__(self, beam_size, vocab_pad=None, vocab_start=None, vocab_end=None, cuda=False, n_best=1, hidden_batch_dim=0):
         self.beams = None
         self.beam_size = beam_size
         self.vocab_pad = vocab_pad
@@ -130,46 +131,62 @@ class BeamDecoder(object):
         self.cuda = cuda
         self.layer_first = layer_first
         self.n_best = n_best
+        # TODO: handle advanced/modular indexing later
+        #self.hidden_batch_dim = hidden_batch_dim
+        self.hidden_batch_dim = 0
 
 
     def bottle(self, m, batch_size):
         return m.view(batch_size * self.beam_size, -1)
 
     def unbottle(self, m, batch_size):
-        return m.view(beam_size, self.batch_size, -1)
+        return m.view(self.beam_size, batch_size, -1)
 
-    def var(self, a): return Variable(a, volatile=True)
+    def var(self, a): return Variable(a)
 
     def rvar(self, a):
         repeat_dims = [1] * a.dim()
         repeat_dims = [self.beam_size] + repeat_dims
         return self.var(a.data.repeat(*repeat_dims))
 
-    def rstates(self, s): return tuple([self.rvar(_s) for _s in s])
+    def rstates(self, s):
+        if not isinstance(s, Iterable):
+            return self.rvar(s)
+        return tuple([self.rstates(_s) for _s in s])
 
-    def beam_state_update(self, s, idx, positions):
+    def state_update(self, s, batch_idx, beam_positions):
+        size = list(_s.size())
+        reshape_size = [self.beam_size, int(size[0]//self.beam_size)]+size[1:]
+        sentStates = _s.view(*reshape_size)[:, batch_idx]
+        sentStates.data.copy_(sentStates.data.index_select(0, beam_positions))
+
+    def beam_state_update(self, s, batch_idx, beam_positions):
         # state=[]
-        for _s in s:
-            b,l,d=_s.size()
-            #in place update of states, since we fill .data tensor in place
-            sentStates = _s.view(self.beam_size,b//self.beam_size, l, d)[:, idx]
-            sentStates.data.copy_(sentStates.data.index_select(0,positions))
-            # state.append(sentStates)
-        # return tuple(state)
+        if not isinstance(s, Iterable):
+            return self.state_update(s, batch_idx, beam_positions)
+        return [self.beam_state_update(_s, batch_idx, beam_positions) for _s in s]
+        # for _s in s:
+        #     size = list(_s.size())
+        #     reshape_size = [self.beam_size, int(size[0]//self.beam_size)]+size[1:]
+        #     #in place update of states, since we fill .data tensor in place
+        #     sentStates = _s.view(*reshape_size)[:, idx]
+        #     sentStates.data.copy_(sentStates.data.index_select(0,positions))
+        #     # state.append(sentStates)
+        # # return tuple(state)
 
-    def reset_beam_decoder(self,batch_size):
+    def reset_beam_decoder(self, batch_size, states):
         self.beams=[Beam(self.beam_size, n_best=self.n_best,
                           cuda=self.cuda,
                           vocab_pad=self.vocab_pad,
                           vocab_start=self.vocab_start,
                           vocab_end=self.vocab_end)
                 for __ in range(batch_size)]
-        return self.get_input()
+        return self.get_input(), self.rstates(states)
 
     def step(self,dec_out,state):
         unbottled=self.unbottle(dec_out,len(self.beams))
-        for j,b in enumerate(self.beams):
-            b.advance(unbottled[:,j])
+        for j, b in enumerate(self.beams):
+            b.advance(unbottled[:, j])
             self.beam_state_update(state, j, b.get_current_origin())
         return self.get_input()
 
@@ -187,7 +204,7 @@ class BeamDecoder(object):
         rtn=[[]]
         n_best=self.n_best
         for b in self.beams:
-            scores, ks = b.sort_best(minimum=n_best)
+            scores, ks = b.sort_best()
             for i, (times, k) in enumerate(ks[:n_best]):
                 hyp = b.get_hyp(times,k)
                 rtn[i].append(hyp)
