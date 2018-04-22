@@ -78,7 +78,10 @@ with open(args.load_model, 'rb') as f:
     print(sd.keys())
     # Hack -- extra transform.
     extra_transform = nn.Linear(args.nhid, args.nhid).cuda()
-    extra_transform.load_state_dict(sd['cell_transform'], strict=True)
+    if sd['cell_transform']:
+        extra_transform.load_state_dict(sd['cell_transform'], strict=True)
+    else:
+        print('WARNING -- no extra cell-cell transform')
     if 'encoder' in sd:
         sd = sd['encoder']
 
@@ -169,9 +172,9 @@ def transform(model, text):
         labels = (np.concatenate(labels).flatten())
     print('%0.3f seconds to transform %d examples' %
                   (time.time() - tstart, n))
-    f = features
+#    f = features
 #    f = features_xform
-#    f = features_hidden
+    f = features_hidden
 
     # For fun, also show the vector of POS - NEG == simply from the means of these distributions
     pos_sum = np.sum(labels)
@@ -359,6 +362,7 @@ for idx in top_pos:
    topAve[idx] = trAve[idx]
 print(np.argsort(topAve))
 print(topAve[np.argsort(topAve)])
+# Never mind -- just use the whole vector. Hard to know what top activations or sentiment neurons mean
 topAve = trAve
 
 # Save the vector -- which can be applied directly on Negative/Neutral hidden state to make it more positive?

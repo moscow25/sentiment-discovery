@@ -29,7 +29,7 @@ class RNNAutoEncoderModel(nn.Module):
                 tie_weights=True, freeze=False, teacher_force=True,
                 attention=False, init_transform_id=False,
                 use_latent_hidden=True, transform_latent_hidden=True,
-                use_cell_hidden=True, transform_cell_hidden=True):
+                use_cell_hidden=False, transform_cell_hidden=False):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
@@ -104,20 +104,23 @@ class RNNAutoEncoderModel(nn.Module):
                 hval = self.emotion_hidden_state[n]
                 cval = self.emotion_cell_state[n]
                 if self.hidden_boost_factor != 0.0:
-                    v = hval * self.hidden_boost_factor
+                    v = hval
                     if self.average_cell_value:
-                        v = (v + encoder_hidden[0][0][0][n]) / 2.0
+                        v = (v * self.hidden_boost_factor) + encoder_hidden[0][0][0][n] * (1.0 - self.hidden_boost_factor)
+                        #v = (v + encoder_hidden[0][0][0][n]) / 2.0
+                    else:
+                        v = v * self.hidden_boost_factor
                     encoder_hidden[0][0][0][n] = v
                 if self.cell_boost_factor != 0.0:
                     encoder_hidden[1][0][0][n] = cval * self.cell_boost_factor
         # If we want to directly add to thes hidden state/cell state vector
         if self.use_added_hidden_state:
             print('Adding hidden state vector')
-            print(self.added_hidden_state_vector)
+            #print(self.added_hidden_state_vector)
             encoder_hidden[0][0][0] += self.added_hidden_state_vector
         if self.use_added_cell_state:
             print('Adding cell state vector')
-            print(self.added_cell_state_vector)
+            #print(self.added_cell_state_vector)
             encoder_hidden[1][0][0] += self.added_cell_state_vector
 
         emb = self.process_emb(encoder_hidden,
@@ -208,8 +211,10 @@ class RNNAutoEncoderModel(nn.Module):
         self.encoder.load_state_dict(sd['encoder'], strict)
         if not self.tied:
             self.decoder.load_state_dict(sd['decoder'], strict)
-        self.latent_hidden_transform.load_state_dict(sd['hidden_transform'], strict)
-        self.latent_cell_transform.load_state_dict(sd['cell_transform'], strict)
+        if sd['hidden_transform']:
+            self.latent_hidden_transform.load_state_dict(sd['hidden_transform'], strict)
+        if sd['cell_transform']:
+            self.latent_cell_transform.load_state_dict(sd['cell_transform'], strict)
 
 # Placeholder QRNN wrapper -- to support detach/reset/init RNN state
 #class myQRNN(QRNN):
