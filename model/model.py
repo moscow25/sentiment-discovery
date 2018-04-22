@@ -31,10 +31,8 @@ class RNNAutoEncoderModel(nn.Module):
     def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
                 tie_weights=True, freeze=False, teacher_force=True,
                 attention=False, init_transform_id=False,
-                #use_latent_hidden=False, transform_latent_hidden=False,
-                use_latent_hidden=True, transform_latent_hidden=True,
-                #use_cell_hidden=False, transform_cell_hidden=False):
-                use_cell_hidden=True, transform_cell_hidden=True):
+                use_latent_hidden=False, transform_latent_hidden=False, latent_tanh=False,
+                use_cell_hidden=False, transform_cell_hidden=False):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
@@ -55,6 +53,7 @@ class RNNAutoEncoderModel(nn.Module):
         # Do we transform the hidden state in decoder? Hidden or cell?
         self.use_latent_hidden = use_latent_hidden
         self.transform_latent_hidden = transform_latent_hidden
+        self.latent_tanh = latent_tanh
         self.use_cell_hidden = use_cell_hidden
         self.transform_cell_hidden = transform_cell_hidden
 
@@ -66,10 +65,13 @@ class RNNAutoEncoderModel(nn.Module):
             self.latent_hidden_transform = nn.Sequential(linear_hidden, nn.Tanh())
         else:
             # Else initialize with random weights
-            self.latent_hidden_transform = nn.Sequential(nn.Linear(nhid, nhid), nn.Tanh())
+            if self.latent_tanh:
+                self.latent_hidden_transform = nn.Sequential(nn.Linear(nhid, nhid), nn.Tanh())
+            else:
+                self.latent_hidden_transform = nn.Linear(nhid, nhid)
         if not self.use_latent_hidden or not self.transform_latent_hidden:
             print('Latent hidden created but not used')
-            self.latent_hidden_transform = None 
+            self.latent_hidden_transform = None
         # Transform cell state [maybe not necessary]
         self.latent_cell_transform = nn.Linear(nhid, nhid)
         if init_transform_id:
@@ -295,7 +297,7 @@ class RNNDecoder(nn.Module):
 
             sampled_out = sample(out, temperature).squeeze()
             out_txt.append(sampled_out.data)
-        
+
 #        print([x.size() for x in out_txt])
         out_txt = torch.stack(out_txt)
         outs = torch.cat(outs)
