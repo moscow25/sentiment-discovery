@@ -32,7 +32,7 @@ class RNNAutoEncoderModel(nn.Module):
                 tie_weights=True, freeze=False, teacher_force=True,
                 attention=False, init_transform_id=False,
                 use_latent_hidden=False, transform_latent_hidden=False, latent_tanh=False,
-                use_cell_hidden=False, transform_cell_hidden=False):
+                use_cell_hidden=False, transform_cell_hidden=False, decoder_highway_hidden=False):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
@@ -56,6 +56,10 @@ class RNNAutoEncoderModel(nn.Module):
         self.latent_tanh = latent_tanh
         self.use_cell_hidden = use_cell_hidden
         self.transform_cell_hidden = transform_cell_hidden
+        self.highway_hidden = decoder_highway_hidden
+
+        if self.highway_hidden:
+            print('Using highway (+=) -- from encoder hidden to each decoder step')
 
         # Transform final hidden state (TanH so that it's in bounds)
         # Option -- initialize hidden transfor to something like the identity matrix -- tricky with Tanh() after
@@ -66,8 +70,10 @@ class RNNAutoEncoderModel(nn.Module):
         else:
             # Else initialize with random weights
             if self.latent_tanh:
+                print('Using tanh() nonlinearity on decoder latent')
                 self.latent_hidden_transform = nn.Sequential(nn.Linear(nhid, nhid), nn.Tanh())
             else:
+                print('*Not* using tanh() on decoder latent')
                 self.latent_hidden_transform = nn.Linear(nhid, nhid)
         if not self.use_latent_hidden or not self.transform_latent_hidden:
             print('Latent hidden created but not used')
@@ -89,7 +95,8 @@ class RNNAutoEncoderModel(nn.Module):
         emb = self.process_emb(encoder_hidden,
             use_latent_hidden=self.use_latent_hidden, transform_latent_hidden=self.transform_latent_hidden,
             use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden)
-        decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask, temperature)
+        decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask,
+            temperature=temperature, highway_hidden=self.highway_hidden)
         self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
         return encoder_output, decoder_output, sampled_out
 
@@ -97,13 +104,14 @@ class RNNAutoEncoderModel(nn.Module):
         out, (hidden, cell) = self.encoder(input, reset_mask=reset_mask)
         return out, (hidden, cell)
 
-    def decode_out(self, input, hidden_output, reset_mask=None, temperature=0):
+    def decode_out(self, input, hidden_output, reset_mask=None, temperature=0, highway_hidden=False):
         # print(hidden_output)
         # print(hidden_output[0].size())
         self.decoder.set_hidden(hidden_output)
         # NOTE: change here to remove teacher forcing
         # TODO: pass flags to use internal state (no teacher forcing)
-        out, (hidden, cell), sampled_out = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1], temperature=temperature)
+        out, (hidden, cell), sampled_out = self.decoder(input, detach=False, reset_mask=reset_mask,
+            context=hidden_output[0][1], temperature=temperature, highway_hidden=highway_hidden)
         return out, (hidden, cell), sampled_out
 
     # placeholder
@@ -259,7 +267,7 @@ class RNNDecoder(nn.Module):
 
         self.teacher_force = teacher_force
 
-    def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0):
+    def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0, highway_hidden=False):
         if detach:
             #print('detach')
             self.rnn.detach_hidden()
@@ -267,6 +275,15 @@ class RNNDecoder(nn.Module):
         context = context.view(1,context.size(-2), context.size(-1))
         seq_len = input.size(0)
         out_txt = [input[0].squeeze()]
+
+        # If implementing a highway -- assume we copied initial hidden state, and += it to future states
+        # HACK -- Highway assumes single-layer one-directional RNN
+        # NOTE -- we += hidden state... after any linear/nonlinear transformation
+        if highway_hidden:
+            #print('copying for highway')
+            first_hidden = [self.rnn.rnns[0].hidden[0].clone(), self.rnn.rnns[0].hidden[1].clone()]
+            #print(first_hidden)
+
         for i in range(seq_len):
             if self.teacher_force or i == 0:
                 x = input[i]
@@ -279,6 +296,18 @@ class RNNDecoder(nn.Module):
 #            out_txt.append(x)
             emb = self.drop(self.encoder(x))
             emb = emb.view(-1, emb.size(-1))
+
+            # Do no highway the first step -- already there.
+            if highway_hidden and i > 0:
+                #print('using highway')
+                #print('copy state')
+                #print(first_hidden)
+                #print('current state')
+                #print(self.rnn.rnns[0].hidden)
+                self.rnn.rnns[0].add_hidden(first_hidden)
+                #print('after copy')
+                #print(self.rnn.rnns[0].hidden)
+
 #            if i>=seq_len-2:
                 #print('rnn_hook', len(self.rnn._backward_hooks))
             _, hidden = self.rnn(emb.unsqueeze(0), reset_mask=reset_mask[i] if reset_mask is not None else None)
