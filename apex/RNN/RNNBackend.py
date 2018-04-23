@@ -416,7 +416,8 @@ class RNNCell(nn.Module):
             hid = hidden[i].view(-1, self.hidden_size)
             #if len(self.hidden[i].size()) != len(hid.size()):
             #    hid = hid.squeeze()
-            self.hidden[i] += hid
+            # self.hidden[i] += hid
+            self.hidden[i] = self.hidden[i] + hid
 
     def forward(self, input):
         """
