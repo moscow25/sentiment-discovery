@@ -79,10 +79,19 @@ with open(args.load_model, 'rb') as f:
         del sd['rng']
     if 'cuda_rng' in sd:
         del sd['cuda_rng']
+    print(sd.keys())
+    # Hack -- extra transform.
+    extra_transform = nn.Linear(args.nhid, args.nhid).cuda()
+    if sd['cell_transform']:
+        extra_transform.load_state_dict(sd['cell_transform'], strict=True)
+    else:
+        print('WARNING -- no extra cell-cell transform')
     if 'encoder' in sd:
         sd = sd['encoder']
     if 'rnn' not in sd:
         sd = sd['encoder']
+
+#print(sd.keys())
 
 try:
     model.load_state_dict(sd)
@@ -91,6 +100,10 @@ except:
     apply_weight_norm(model.rnn)
     model.load_state_dict(sd)
     remove_weight_norm(model)
+
+# Hack -- extra transform.
+#extra_transform = nn.Sequential(nn.Linear(args.nhid, args.nhid), nn.Tanh()).cuda()
+#extra_transform.load_state_dict(sd['hidden_transform'], strict)
 
 def transform(model, text):
     '''
@@ -127,15 +140,23 @@ def transform(model, text):
             n += batch_size
             model.rnn.reset_hidden(batch_size)
             # extract batch of features from text batch
-            cell = model(text_batch, length_batch).float()
+            hidden, cell = model(text_batch, seq_len=length_batch, get_hidden=True)
+            hidden = hidden.float()
+            cell = cell.float()
             if first_feature:
+                features_hidden = []
                 features = []
+                features_xform = []
                 first_feature = False
                 labels = []
             labels.append(labels_batch.data.cpu().numpy())
+            features_hidden.append(hidden.data.cpu().numpy())
             features.append(cell.data.cpu().numpy())
+            #print(cell)
+            #print(extra_transform(cell))
+            features_xform.append(extra_transform(cell).data.cpu().numpy())
 
-            num_char = length_batch.sum().item()
+            num_char = length_batch.sum().data.item()
 
             end = time.time()
             elapsed_time = end - start
@@ -151,11 +172,26 @@ def transform(model, text):
             print('batch {:5d}/{:5d} | ch/s {:.2E} | time {:.2E} | time left {:.2E}'.format(i, len_ds, ch_per_s, elapsed_time, timeleft))
 
     if not first_feature:
+        features_hidden = (np.concatenate(features_hidden))
         features = (np.concatenate(features))
+        features_xform = (np.concatenate(features_xform))
         labels = (np.concatenate(labels).flatten())
     print('%0.3f seconds to transform %d examples' %
                   (time.time() - tstart, n))
-    return features, labels
+#    f = features
+#    f = features_xform
+    f = features_hidden
+
+    # For fun, also show the vector of POS - NEG == simply from the means of these distributions
+    pos_sum = np.sum(labels)
+    pos_labels_average = f * labels.reshape((labels.shape[0],1))
+    pos_labels_average = np.sum(pos_labels_average, axis=0) / pos_sum
+    neg_sum = np.sum(-1.0 * (labels - 1.0))
+    neg_labels_average = f * (-1.0 * (labels - 1.0)).reshape(((-1.0 * (labels - 1.0)).shape[0],1))
+    neg_labels_average = np.sum(neg_labels_average, axis=0) / neg_sum
+    labels_ave_vector = pos_labels_average - neg_labels_average
+
+    return f, labels, labels_ave_vector
 
 def score_and_predict(model, X, Y):
     '''
@@ -189,7 +225,7 @@ def train_logreg(trX, trY, vaX=None, vaY=None, teX=None, teY=None, penalty='l1',
     scores = []
     if model is None:
         for i, c in enumerate(C):
-            model = LogisticRegression(C=c, penalty=penalty, max_iter=max_iter, random_state=42+i)
+            model = LogisticRegression(C=c, penalty=penalty, max_iter=max_iter, random_state=seed+i)
             model.fit(trX, trY)
             if vaX is not None:
                 score = model.score(vaX, vaY)
@@ -198,7 +234,7 @@ def train_logreg(trX, trY, vaX=None, vaY=None, teX=None, teY=None, penalty='l1',
             scores.append(score)
             del model
         c = C[np.argmax(scores)]
-        model = LogisticRegression(C=c, penalty=penalty, max_iter=max_iter, random_state=42+len(C))
+        model = LogisticRegression(C=c, penalty=penalty, max_iter=max_iter, random_state=seed+len(C))
         model.fit(trX, trY)
     else:
         c = model.C
@@ -315,17 +351,36 @@ print('writing results to '+save_root)
 # featurize train, val, test or use previously cached features if possible
 print('transforming train')
 if not (os.path.exists(os.path.join(save_root, 'trXt.npy')) and args.use_cached):
-    trXt, trY = transform(model, train_data)
+    trXt, trY, trAve = transform(model, train_data)
     np.save(os.path.join(save_root, 'trXt'), trXt)
     np.save(os.path.join(save_root, 'trY'), trY)
 else:
     trXt = np.load(os.path.join(save_root, 'trXt.npy'))
     trY = np.load(os.path.join(save_root, 'trY.npy'))
+
+# Hack -- save average values of Pos - Neg in vector space 
+# NOTE: We want to limit averages vector to large activations. Choose a number -- copy those.
+num_top = 200
+top_pos = np.argsort(np.abs(trAve))[-1*num_top:]
+print('Top %d neurons in trAve vector: %s' % (num_top, top_pos))
+topAve = np.zeros_like(trAve)
+for idx in top_pos:
+   topAve[idx] = trAve[idx]
+print(np.argsort(topAve))
+print(topAve[np.argsort(topAve)])
+# Never mind -- just use the whole vector. Hard to know what top activations or sentiment neurons mean
+topAve = trAve
+
+# Save the vector -- which can be applied directly on Negative/Neutral hidden state to make it more positive?
+topAvePath = os.path.join(save_root, 'topAveVector')
+print('Saving topAveVector for top %d neurons: %s' % (num_top, topAvePath))
+np.save(topAvePath, topAve)
+
 vaXt, vaY = None, None
 if val_data is not None:
     print('transforming validation')
     if not (os.path.exists(os.path.join(save_root, 'vaXt.npy')) and args.use_cached):
-        vaXt, vaY = transform(model, val_data)
+        vaXt, vaY, vaAve = transform(model, val_data)
         np.save(os.path.join(save_root, 'vaXt'), vaXt)
         np.save(os.path.join(save_root, 'vaY'), vaY)
     else:
@@ -335,7 +390,7 @@ teXt, teY = None, None
 if test_data is not None:
     print('transforming test')
     if not (os.path.exists(os.path.join(save_root, 'teXt.npy')) and args.use_cached):
-        teXt, teY = transform(model, test_data)
+        teXt, teY, teAve = transform(model, test_data)
         np.save(os.path.join(save_root, 'teXt'), teXt)
         np.save(os.path.join(save_root, 'teY'), teY)
     else:

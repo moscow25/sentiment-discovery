@@ -38,10 +38,8 @@ class RNNAutoEncoderModel(nn.Module):
     def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
                 tie_weights=True, freeze=False, teacher_force=True,
                 attention=False, init_transform_id=False,
-                #use_latent_hidden=False, transform_latent_hidden=False,
                 use_latent_hidden=True, transform_latent_hidden=True,
-                #use_cell_hidden=False, transform_cell_hidden=False):
-                use_cell_hidden=True, transform_cell_hidden=True):
+                use_cell_hidden=False, transform_cell_hidden=False):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
@@ -85,18 +83,62 @@ class RNNAutoEncoderModel(nn.Module):
             print('Latent cell created but not used')
             self.latent_cell_transform = None
 
+        # If we overwrite state [from emotion, etc] -- values set from outside the house
+        self.emotion_neurons = None
+        self.emotion_hidden_state = None
+        self.emotion_cell_state = None
+        # Boost promotion -- or turn off with 0.0
+        self.hidden_boost_factor = 1.0
+        self.cell_boost_factor = 0.0
+        self.average_cell_value = False # True # average, instead of replace?
+        # Externally -- can also push vector simply to add to hidden state [for translation in pre-computed dimension]
+        self.use_added_hidden_state = False
+        self.added_hidden_state_vector = None
+        self.use_added_cell_state = False
+        self.added_cell_state_vector = None
+
     def forward(self, input, reset_mask=None, temperature=0., beam=None):
         if self.freeze:
             with torch.no_grad():
                 encoder_output, encoder_hidden = self.encode_in(input, reset_mask)
         else:
             encoder_output, encoder_hidden = self.encode_in(input, reset_mask)
+
+        #print('encoder hidden:')
+        #print(encoder_hidden)
+
+        # If we want to manipulate neurons [from outside, N=1, etc]
+        if self.emotion_neurons:
+            #print('-------\nChanging cells: %s' % self.emotion_neurons)
+            for n in self.emotion_neurons:
+                hval = self.emotion_hidden_state[n]
+                cval = self.emotion_cell_state[n]
+                if self.hidden_boost_factor != 0.0:
+                    v = hval
+                    if self.average_cell_value:
+                        v = (v * self.hidden_boost_factor) + encoder_hidden[0][0][0][n] * (1.0 - self.hidden_boost_factor)
+                        #v = (v + encoder_hidden[0][0][0][n]) / 2.0
+                    else:
+                        v = v * self.hidden_boost_factor
+                    encoder_hidden[0][0][0][n] = v
+                if self.cell_boost_factor != 0.0:
+                    encoder_hidden[1][0][0][n] = cval * self.cell_boost_factor
+        # If we want to directly add to thes hidden state/cell state vector
+        if self.use_added_hidden_state:
+            print('Adding hidden state vector')
+            #print(self.added_hidden_state_vector)
+            encoder_hidden[0][0][0] += self.added_hidden_state_vector
+        if self.use_added_cell_state:
+            print('Adding cell state vector')
+            #print(self.added_cell_state_vector)
+            encoder_hidden[1][0][0] += self.added_cell_state_vector
+
         emb = self.process_emb(encoder_hidden,
             use_latent_hidden=self.use_latent_hidden, transform_latent_hidden=self.transform_latent_hidden,
             use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden)
         decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask, temperature, beam)
         self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
-        return encoder_output, decoder_output, sampled_out
+        return encoder_output, decoder_output, encoder_hidden, sampled_out
 
     def encode_in(self, input, reset_mask=None):
         out, (hidden, cell) = self.encoder(input, reset_mask=reset_mask)
@@ -129,8 +171,10 @@ class RNNAutoEncoderModel(nn.Module):
         else:
             cell = torch.zeros_like(emb[1][0])
         if transform_cell_hidden:
-             cell = self.latent_cell_transform(cell)
+            cell = self.latent_cell_transform(cell)
+
         #emb = [[self.latent_hidden_transform(emb[0][0]), self.latent_cell_transform(emb[1][0])]]
+        #print((hid, cell))
         return [[hid, cell]]
 
     def get_text_from_outputs(self, out, temperature=0):
@@ -177,9 +221,9 @@ class RNNAutoEncoderModel(nn.Module):
         self.encoder.load_state_dict(sd['encoder'], strict)
         if not self.tied:
             self.decoder.load_state_dict(sd['decoder'], strict)
-        if self.latent_hidden_transform is not None:
+        if self.latent_hidden_transform is not None and sd['hidden_transform']:
             self.latent_hidden_transform.load_state_dict(sd['hidden_transform'], strict)
-        if self.latent_cell_transform is not None:
+        if self.latent_cell_transform is not None and sd['cell_transform']:
             self.latent_cell_transform.load_state_dict(sd['cell_transform'], strict)
 
 # Placeholder QRNN wrapper -- to support detach/reset/init RNN state
@@ -316,7 +360,7 @@ class RNNDecoder(nn.Module):
 
             sampled_out = sample(out, temperature, beam_step=None if beam is None else lambda x: beam.step(x, self.rnn.get_hidden())).squeeze()
             out_txt.append(sampled_out.data)
-        
+
 #        print([x.size() for x in out_txt])
         if beam is not None:
             out_txt = beam.get_hyp()
@@ -374,7 +418,7 @@ class RNNFeaturizer(nn.Module):
             for i in range(input.size(0)):
                 emb = self.drop(self.encoder(input[i]))
                 _, hidden = self.rnn(emb.unsqueeze(0), collectHidden=True)
-                cell = self.get_features(hidden)
+                cell = self.get_features(hidden, get_hidden=False)
                 if get_hidden:
                     hidden = self.get_features(hidden, get_hidden=True)
                 if i > 0:
@@ -389,6 +433,7 @@ class RNNFeaturizer(nn.Module):
 
         return cell
 
+    # Passed a pair of hidden, cell -- choose the right one and get features (final values)
     def get_features(self, hidden, get_hidden=False):
         if get_hidden:
             cell = hidden[0]
@@ -409,8 +454,14 @@ class RNNFeaturizer(nn.Module):
         return sd
 
     def load_state_dict(self, state_dict, strict=True):
-        self.encoder.load_state_dict(state_dict['encoder'], strict=strict)
-        self.rnn.load_state_dict(state_dict['rnn'], strict=strict)
+        # For AutoEncoder module, need extra "encoder" path
+        # TODO: Automate this switch.
+        if 'encoder' in state_dict['encoder'].keys():
+            self.encoder.load_state_dict(state_dict['encoder']['encoder'], strict=strict)
+            self.rnn.load_state_dict(state_dict['encoder']['rnn'], strict=strict)
+        else:
+            self.encoder.load_state_dict(state_dict['encoder'], strict=strict)
+            self.rnn.load_state_dict(state_dict['rnn'], strict=strict)
 
 def get_valid_outs(timestep, seq_len, out, last_out):
     invalid_steps = timestep >= seq_len

@@ -88,7 +88,7 @@ parser.add_argument('--decoder_xform_cell', action='store_true',
 parser.add_argument('--force_ctrl', type=float, default=0.,
                     help='percentage of training with no teacher forcing. (0.2=20% no teacher forcing)')
 
-# Resume training arguments
+# Resume training arguments @nicky
 parser.add_argument('--save_optim', action='store_true',
                     help='save optimizer in addtion to model')
 parser.add_argument('--load_optim', type=str, default='',
@@ -334,17 +334,20 @@ def train(total_iters=0):
         data, targets, reset_mask = get_batch(batch)
         #output, hidden = model(data, reset_mask=reset_mask)
         rnn_model.decoder.teacher_force = should_teacher_force()
-        output_enc, output_dec, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
+        output_enc, output_dec, encoder_hidden, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
 
         if i % 1000 == 0:
             print_len = min(args.batch_size, 3)
             encoder_text, decoder_text = rnn_model.get_text_from_outputs((output_enc, output_dec), temperature=args.temperature)
             print('------\nActual text:')
             print('\n'.join([(''.join([chr(c) for c in list(targets[:,l].data.cpu().numpy())])).replace('\n',' ') for l in range(print_len)]))
-            print('------\nEncoder, decoder text:')
+            print('------\nEncoder, decoder, sampled_out text:')
             print('\n'.join([''.join(cleanup_text(text)) for text in encoder_text[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
             print('-------')
             print('\n'.join([''.join(cleanup_text(text)) for text in decoder_text[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
+            # TODO: Decode sampled_out string via char conversion 
+            #print('-------')
+            #print('\n'.join([''.join(cleanup_text(text)) for text in sampled_out[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
 
         #loss = criterion(output.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
         loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
