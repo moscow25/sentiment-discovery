@@ -21,6 +21,9 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+# To fit solutions
+from scipy.optimize import minimize
 #import seaborn as sns
 #sns.set_style({'font.family': 'monospace'})
 
@@ -246,6 +249,8 @@ forced_output = list(forced_output[-1].squeeze().cpu().numpy())
 unforced_output = list(unforced_output[-1].squeeze().cpu().numpy())
 forced_output = [chr(int(x)) for x in forced_output]
 unforced_output = [chr(int(x)) for x in unforced_output]
+# Capture content encoder hidden state.
+content_hidden_state = forced_emotion_output[2][0].squeeze().data#.cpu().numpy()
 
 print('-----forced output-----')
 print((''.join(forced_output)).replace('\n', ' '))
@@ -269,7 +274,7 @@ forced_emotion_output = model(input_emotion, temperature=args.temperature)
 # Key is that we capture the emotion encoder hidden state.
 emotion_hidden_state = forced_emotion_output[2][0].squeeze().data#.cpu().numpy()
 
-# Compute "outer product" on hidden state 
+# Compute "outer product" on hidden state
 # TODO: Average outer product over steps...
 print(forced_emotion_output[2])
 outer_product_hidden_state = torch.ger(emotion_hidden_state, emotion_hidden_state)
@@ -295,7 +300,7 @@ print((''.join(unforced_emotion_output)).replace('\n', ' '))
 # emotion_neurons = [1162, 3494, 898, 732, 2022, 986, 2743, 3572, 977, 1526, 3737, 781, 490, 2264, 287, 2506, 550, 680, 3635, 3650, 4054, 3078, 2846, 3616, 159]
 # top 156 [all neurons from transfer.py]
 #emotion_neurons = [1162, 3494, 898, 732, 2022, 986, 2743, 3572, 977, 1526, 3737, 781, 490, 2264, 287, 2506, 550, 680, 3635, 3650, 4054, 3078, 2846, 3616, 159, 2701, 2987, 2858, 797, 1506, 1766, 1657, 922, 3168, 1682, 3428, 1140, 2872, 3982, 336, 237, 1862, 1083, 3984, 903, 19, 3760, 572, 3130, 3272, 4039, 3778, 2768, 110, 276, 1203, 1498, 1941, 1910, 3908, 2055, 1364, 2698, 2587, 3565, 115, 1666, 1937, 1825, 319, 1330, 1081, 103, 2482, 1287, 84, 3670, 2144, 963, 1522, 3241, 2955, 3160, 2536, 3997, 1190, 2978, 2888, 501, 1243, 3407, 1309, 470, 3296, 1587, 162, 1260, 3292, 2802, 3911, 2389, 1084, 3525, 2007, 1936, 377, 2643, 3092, 2183, 3820, 1413, 2780, 3173, 3430, 2039, 3274, 3252, 3865, 2485, 1775, 1702, 88, 2880, 3295, 3232, 2693, 654, 662, 577, 51, 3798, 1302, 790, 1494, 1045, 1120, 2552, 1562, 2878, 3302, 355, 1804, 3395, 1036, 2750, 1105, 516, 927, 2060, 1711, 1500, 3813, 2636, 3405, 2993, 447]
-# For no-TF model -- shockingly, a similar list. Same initialization... 
+# For no-TF model -- shockingly, a similar list. Same initialization...
 #emotion_neurons = [1162, 179, 3982, 1134, 2698, 3494, 3523, 732, 4048, 669, 490, 2298, 3399, 4033, 1100, 3022, 1920, 1344, 1728, 1506, 1517, 1827, 2872, 3106, 340, 572, 2318, 473, 3760, 134, 316, 796, 3405, 229, 1230, 163, 760, 1200, 1657, 1377, 540, 2573, 3295, 3208, 709, 2227, 2531, 352, 1941, 97, 1483, 1004, 2424, 1430, 371, 1783, 3738, 1379, 1620, 203, 3274, 2930, 2825, 2779, 3632, 1643, 3937, 1575, 1909, 2649, 1836, 728, 2587, 1522, 1672, 225, 537, 1937, 4006, 3751, 2310, 803, 631, 3423, 48, 853, 1989, 1862, 3750, 2803, 2787, 4069, 149, 3438, 305, 1488, 426, 841, 3922, 3446]
 # /data/nicky/experiments/mlstm-AEnc-30-70-4096-Amazon-FP16-decoder-pretrain-noTied-len128-noCellcp-noXform/e112000_transfer/sentiment/topAveVector
 emotion_neurons = [179, 1162, 1827, 3494, 2366, 296, 2618, 3650, 4053, 340, 3635, 2858, 235, 1100, 3632, 813, 2110, 1964, 4033, 2060, 3399, 2230, 3621, 1008, 2822, 2691, 2538, 1728, 3345, 139, 788, 445, 1717, 2880, 3295, 3158, 873, 986, 3891, 408, 2521, 581, 3022, 2482, 1839, 792, 2773, 3676, 3111, 2563, 540, 3052, 1498, 1654, 3596, 1305, 355, 161, 1003, 1553, 537, 2441, 1506, 2431, 3364, 3488, 146, 2066, 3376, 2434, 168, 3258, 345, 1941, 868, 3372, 669, 1497, 732, 3777, 2290, 1215, 3685, 1882, 1806, 3199, 1619, 1409, 177, 817, 3774, 3166, 2976, 1862, 1140, 4076, 507, 1306, 513, 4039]
@@ -312,7 +317,7 @@ model.emotion_neurons = [n for n in range(args.nhid)]
 print('transfering on %d neurons' % len(model.emotion_neurons))
 model.emotion_hidden_state = emotion_hidden_state
 model.emotion_cell_state = emotion_cell_state
-# How much do we boost? 
+# How much do we boost?
 model.hidden_boost_factor = args.emotion_factor
 print('transfering with %.3f emo factor' % model.hidden_boost_factor)
 model.cell_boost_factor = 0.0
@@ -358,6 +363,28 @@ print('-----forced output-----')
 print((''.join(forced_output)).replace('\n', ' '))
 print('-----unforced output-----')
 print((''.join(unforced_output)).replace('\n', ' '))
+
+# Style transfer...
+# Experimental -- try solving for X so that min(||X-A||+||style(X)-style(B)||)
+# where style is the gram matrix over final B, or averaged over multiple steps
+
+def gram_transfer_loss(emb,content_emb,style_gram,style_weight):
+    content_weight = 1.0 - style_weight
+    content_loss = np.average((emb - content_emb)**2)
+    style_loss = np.average((np.outer(emb, emb) - style_gram)**2)
+    return content_weight*content_loss + style_weight*style_loss
+#    return np.sum( ((coord[0] - x)**2) + ((coord[1] - y)**2) - (r**2) )
+
+print('Attempting content/emotion style transfer')
+print('content hidden state')
+print(content_hidden_state)
+print('emotion hidden state')
+print(emotion_hidden_state)
+STYLE_WEIGHT = 0.1
+res = minimize(gram_transfer_loss,content_hidden_state,args = [content_hidden_state,outer_product_hidden_state,STYLE_WEIGHT])
+print('Completed style transfer')
+
+print(res)
 
 exit()
 
