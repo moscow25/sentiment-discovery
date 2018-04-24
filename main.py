@@ -93,6 +93,12 @@ parser.add_argument('--save_optim', action='store_true',
                     help='save optimizer in addtion to model')
 parser.add_argument('--load_optim', type=str, default='',
                     help='path to load optimizer to resume training')
+parser.add_argument('--blowup_restore', action='store_true',
+                    help='employ our blowup restoring heuristic to reload old checkpoints on blow up')
+
+# Encoder/decoder loss ctrl
+parser.add_argument('--decoder_weight', type=float, default=.7,
+                    help='decoder/encoder loss weighting. encoder_weight=1-decoder_weight. Default: .7')
 
 # Add dataset args to argparser and set some defaults
 data_config, data_parser = configure_data(parser)
@@ -381,6 +387,10 @@ def train(total_iters=0):
             # if fp16 optimizer skips gradient step due to explosion do not step lr
             if not optim.overflow:
                 LR.step()
+            elif optim.blowup_restore and optim.loss_scale == 1 and args.dynamic_loss_scale:
+                iter2load = max(0, (int(e/args.log_interval)-2)*args.log_interval)
+                model.load_state_dict(torch.load(os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(iter2load),))))
+                optim.load_state_dict(torch.load(os.path.join(os.path.splitext(args.save)[0], 'optim', 'e%s.pt'%(str(iter2load),))))
 
         if i % args.log_interval == 0:
             log_interval = args.log_interval if i!=0 else 1
