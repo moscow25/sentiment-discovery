@@ -83,6 +83,11 @@ parser.add_argument('--decoder_xform_hidden', action='store_true',
                     help='Linear transform (with a tanh()) on hidden to decoder')
 parser.add_argument('--decoder_xform_cell', action='store_true',
                     help='Linear transform on cell state to decoder')
+parser.add_argument('--latent_use_tanh', action='store_true',
+                    help='Squash latent (hidden to hidden) transform with tanh()? Deprecating if not needed')
+# Highway -- Pass encoder hidden state to every decoder step?
+parser.add_argument('--decoder_highway_hidden', action='store_true',
+                    help='Highway layer from encoder hidden for every decoder step? (simple +=)')
 
 # Control for Variable Teacher Forcing @nicky
 parser.add_argument('--force_ctrl', type=float, default=0.,
@@ -184,7 +189,9 @@ model = model.RNNAutoEncoderModel(args.model, ntokens, args.emsize, args.nhid, a
     dropout=args.dropout, tie_weights=args.tied, freeze=args.freeze,
     teacher_force=not args.no_force, attention=args.attention, init_transform_id=args.init_transform_id,
     use_latent_hidden=args.decoder_use_hidden, transform_latent_hidden=args.decoder_xform_hidden,
-    use_cell_hidden=args.decoder_use_cell, transform_cell_hidden=args.decoder_xform_cell)
+    latent_tanh=args.latent_use_tanh,
+    use_cell_hidden=args.decoder_use_cell, transform_cell_hidden=args.decoder_xform_cell,
+    decoder_highway_hidden=args.decoder_highway_hidden)
 if torch.cuda.is_available():
     print('Compiling model in CUDA mode [make sure]')
     model = model.cuda()
