@@ -75,6 +75,10 @@ if args.fp16:
 # load char embedding and recurrent encoder for featurization
 with open(args.load_model, 'rb') as f:
     sd = torch.load(f)
+    if 'rng' in sd:
+        del sd['rng']
+    if 'cuda_rng' in sd:
+        del sd['cuda_rng']
     print(sd.keys())
     # Hack -- extra transform.
     extra_transform = nn.Linear(args.nhid, args.nhid).cuda()
@@ -83,6 +87,8 @@ with open(args.load_model, 'rb') as f:
     else:
         print('WARNING -- no extra cell-cell transform')
     if 'encoder' in sd:
+        sd = sd['encoder']
+    if 'rnn' not in sd:
         sd = sd['encoder']
 
 #print(sd.keys())
@@ -113,7 +119,7 @@ def transform(model, text):
 
     def get_batch(batch):
         '''
-        Process batch and return tuple of (text, text label, text length) long tensors.
+         Process batch and return tuple of (text, text label, text length) long tensors.
         Text is returned in column format with (time, batch) dimensions.
         '''
         (text, timesteps), labels = batch
@@ -162,7 +168,7 @@ def transform(model, text):
             if elapsed_time == 0:
                 ch_per_s = num_char
             else:
-                ch_per_s = num_char / (elapsed_time + 1)
+                ch_per_s = num_char / elapsed_time
             print('batch {:5d}/{:5d} | ch/s {:.2E} | time {:.2E} | time left {:.2E}'.format(i, len_ds, ch_per_s, elapsed_time, timeleft))
 
     if not first_feature:

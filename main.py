@@ -5,6 +5,7 @@ import time
 import math
 import torch
 import torch.nn as nn
+import random
 from torch.autograd import Variable
 
 from fp16 import FP16_Module, FP16_Optimizer
@@ -82,6 +83,16 @@ parser.add_argument('--decoder_xform_hidden', action='store_true',
                     help='Linear transform (with a tanh()) on hidden to decoder')
 parser.add_argument('--decoder_xform_cell', action='store_true',
                     help='Linear transform on cell state to decoder')
+
+# Control for Variable Teacher Forcing @nicky
+parser.add_argument('--force_ctrl', type=float, default=0.,
+                    help='percentage of training with no teacher forcing. (0.2=20% no teacher forcing)')
+
+# Resume training arguments @nicky
+parser.add_argument('--save_optim', action='store_true',
+                    help='save optimizer in addtion to model')
+parser.add_argument('--load_optim', type=str, default='',
+                    help='path to load optimizer to resume training')
 
 # Add dataset args to argparser and set some defaults
 data_config, data_parser = configure_data(parser)
@@ -178,6 +189,13 @@ if args.load != '':
     sd = torch.load(args.load, map_location=lambda storage, loc: storage)
     #@nicky: here's how to fix the reloading problem I was talking about
     #sd['decoder']=sd['encoder']
+    if 'rng' in sd:
+        torch.set_rng_state(sd['rng'])
+        del sd['rng']
+    if 'cuda_rng' in sd:
+        if torch.cuda.is_available():
+            torch.cuda.set_rng_state(sd['cuda_rng'])
+        del sd['cuda_rng']
 
     #sd = torch.load(args.load)
     try:
@@ -234,6 +252,9 @@ if train_data is not None:
     num_iters = len(train_data) * args.epochs
     LR = LinearLR(optim, num_iters)
 
+if args.load_optim != '':
+    optim.load_state_dict(torch.load(args.load_optim))
+
 # wrap model for distributed training
 if args.world_size > 1:
     model = DDP(model)
@@ -276,6 +297,10 @@ def cleanup_text(text):
     t = t.replace('\t', ' ')
     return ''.join(x for x in t if (31 < ord(x) < 127))
 
+def should_teacher_force():
+    p = random.random()
+    return p >= args.force_ctrl
+
 def evaluate(data_source):
     # Turn on evaluation mode which disables dropout.
     model.eval()
@@ -288,7 +313,7 @@ def evaluate(data_source):
             output_enc, output_dec, sampled_out = model(data, reset_mask=reset_mask)
             loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
             loss_dec = criterion(output_dec.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
-            w_enc, w_dec = 0.6, 0.4
+            w_enc, w_dec = 0.3, 0.7
             loss = w_enc * loss_enc + w_dec * loss_dec
 #            output_flat = output.view(-1, ntokens).contiguous().float()
             total_loss += loss.data[0]
@@ -308,6 +333,7 @@ def train(total_iters=0):
 
         data, targets, reset_mask = get_batch(batch)
         #output, hidden = model(data, reset_mask=reset_mask)
+        rnn_model.decoder.teacher_force = should_teacher_force()
         output_enc, output_dec, encoder_hidden, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
 
         if i % 1000 == 0:
@@ -379,8 +405,17 @@ def train(total_iters=0):
             if args.rank < 1:
                 fname = os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(total_iters),))
                 print('saving model to %s' % fname)
-                with open(os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(total_iters),)), 'wb') as f:
-                    torch.save(model.state_dict(), f)
+                with open(fname, 'wb') as f:
+                    sd = rnn_model.state_dict()
+                    sd['rng'] = torch.get_rng_state()
+                    if torch.cuda.is_available():
+                        sd['cuda_rng'] = torch.cuda.get_rng_state()
+                    torch.save(sd, f)
+                if args.save_optim:
+                    optimname = os.path.join(os.path.splitext(args.save)[0], 'optim', 'e%s.pt'%(str(total_iters),))
+                    with open(optimname, 'wb') as f:
+                        sd = optim.state_dict()
+                        torch.save(sd, f)
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
         total_iters += 1
@@ -392,8 +427,11 @@ lr = args.lr
 best_val_loss = None
 
 # If saving process intermittently create directory for saving
-if args.save_iters > 0 and not os.path.exists(os.path.splitext(args.save)[0]) and args.rank < 1:
-    os.makedirs(os.path.splitext(args.save)[0])
+if args.save_iters > 0:
+    if not os.path.exists(os.path.splitext(args.save)[0]) and args.rank < 1:
+        os.makedirs(os.path.splitext(args.save)[0])
+    if not os.path.exists(os.path.join(os.path.splitext(args.save)[0], 'optim')) and args.rank < 1:
+        os.makedirs(os.path.join(os.path.splitext(args.save)[0], 'optim'))
 
 # At any point you can hit Ctrl + C to break out of training early.
 try:
@@ -413,7 +451,11 @@ try:
         # Save the model if the validation loss is the best we've seen so far.
         if not best_val_loss or val_loss < best_val_loss and args.rank <= 0:
             with open(args.save, 'wb') as f:
-                torch.save(model.state_dict(), f)
+                sd = rnn_model.state_dict()
+                sd['rng'] = torch.get_rng_state()
+                if torch.cuda.is_available():
+                    sd['cuda_rng'] = torch.cuda.get_rng_state()
+                torch.save(sd, f)
             best_val_loss = val_loss
         if torch.cuda.is_available():
             torch.cuda.synchronize()
@@ -425,12 +467,12 @@ except KeyboardInterrupt:
 # Load the best saved model.
 if os.path.exists(args.save):
     with open(args.save, 'rb') as f:
-        model.load_state_dict(torch.load(f))
+        rnn_model.load_state_dict(torch.load(f))
 
 if not args.no_weight_norm and args.rank <= 0:
     remove_weight_norm(rnn_model)
     with open(args.save, 'wb') as f:
-        torch.save(model.state_dict(), f)
+        torch.save(rnn_model.state_dict(), f)
 
 if torch.cuda.is_available():
     torch.cuda.synchronize()

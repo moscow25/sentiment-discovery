@@ -1,21 +1,31 @@
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+import torch.nn.functional as F
 
 from apex import RNN
 #import QRNN
 
-def sample(out, temperature=0.1, cpu=False):
+def sample(out, temperature=0.1, cpu=False, beam_step=None):
     # Temperature == 0 is broken [all results in 0-32 space, no printable characters. Use low temp > 0.]
-    if temperature == 0:
-#        print('WARNING: Temp=0 is broken. Will not return correct results')
-        char_idx = torch.max(out.squeeze().data, 0)[1]
+    if beam_step is None:
+        if temperature == 0:
+    #        print('WARNING: Temp=0 is broken. Will not return correct results')
+            char_idx = torch.max(out.squeeze().data, 0)[1]
+        else:
+            out = out.float().squeeze().div(temperature)
+            char_weights = F.softmax(out, -1).data
+    #        char_weights = out.exp()
+            if cpu:
+                char_weights = char_weights.cpu()
+            char_idx = torch.multinomial(char_weights, 1)
+        return char_idx
     else:
-        char_weights = out.float().squeeze().data.div(temperature).exp()
-        if cpu:
-            char_weights = char_weights.cpu()
-        char_idx = torch.multinomial(char_weights, 1)
-    return char_idx
+        out = out.float().squeeze()
+        if temperature > 0:
+            out = out.div(temperature)
+        out = F.log_softmax(out, -1)
+        return beam_step(out)
 
 def tie_params(module_src, module_dst):
 
@@ -87,7 +97,7 @@ class RNNAutoEncoderModel(nn.Module):
         self.use_added_cell_state = False
         self.added_cell_state_vector = None
 
-    def forward(self, input, reset_mask=None, temperature=0.):
+    def forward(self, input, reset_mask=None, temperature=0., beam=None):
         if self.freeze:
             with torch.no_grad():
                 encoder_output, encoder_hidden = self.encode_in(input, reset_mask)
@@ -126,7 +136,7 @@ class RNNAutoEncoderModel(nn.Module):
         emb = self.process_emb(encoder_hidden,
             use_latent_hidden=self.use_latent_hidden, transform_latent_hidden=self.transform_latent_hidden,
             use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden)
-        decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask, temperature)
+        decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask, temperature, beam)
         self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
         return encoder_output, decoder_output, encoder_hidden, sampled_out
 
@@ -134,13 +144,13 @@ class RNNAutoEncoderModel(nn.Module):
         out, (hidden, cell) = self.encoder(input, reset_mask=reset_mask)
         return out, (hidden, cell)
 
-    def decode_out(self, input, hidden_output, reset_mask=None, temperature=0):
+    def decode_out(self, input, hidden_output, reset_mask=None, temperature=0, beam=None):
         # print(hidden_output)
         # print(hidden_output[0].size())
         self.decoder.set_hidden(hidden_output)
         # NOTE: change here to remove teacher forcing
         # TODO: pass flags to use internal state (no teacher forcing)
-        out, (hidden, cell), sampled_out = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1], temperature=temperature)
+        out, (hidden, cell), sampled_out = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1], temperature=temperature, beam=beam)
         return out, (hidden, cell), sampled_out
 
     # placeholder
@@ -197,23 +207,23 @@ class RNNAutoEncoderModel(nn.Module):
             sd['decoder'] = sd['encoder']
         else:
             sd['decoder'] = self.decoder.state_dict(prefix=prefix, keep_vars=keep_vars)
-        if self.use_latent_hidden or self.transform_latent_hidden:
+        if self.use_latent_hidden and self.transform_latent_hidden:
             sd['hidden_transform'] = self.latent_hidden_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
         else:
-            sd['hidden_transform'] = []
-        if self.use_cell_hidden or self.transform_cell_hidden:
+            sd['hidden_transform'] = {}
+        if self.use_cell_hidden and self.transform_cell_hidden:
             sd['cell_transform'] = self.latent_cell_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
         else:
-            sd['cell_transform'] = []
+            sd['cell_transform'] = {}
         return sd
 
     def load_state_dict(self, sd, strict=True):
         self.encoder.load_state_dict(sd['encoder'], strict)
         if not self.tied:
             self.decoder.load_state_dict(sd['decoder'], strict)
-        if sd['hidden_transform']:
+        if self.latent_hidden_transform is not None and sd['hidden_transform']:
             self.latent_hidden_transform.load_state_dict(sd['hidden_transform'], strict)
-        if sd['cell_transform']:
+        if self.latent_cell_transform is not None and sd['cell_transform']:
             self.latent_cell_transform.load_state_dict(sd['cell_transform'], strict)
 
 # Placeholder QRNN wrapper -- to support detach/reset/init RNN state
@@ -298,7 +308,20 @@ class RNNDecoder(nn.Module):
 
         self.teacher_force = teacher_force
 
-    def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0):
+    def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0, beam=None):
+        """reset_mask and beam currently do not work together"""
+        # TODO: init beam
+        batch_size = input.size(1)
+        if beam is not None:
+            hidden_init = self.rnn.get_hidden()
+            if context is not None:
+                hidden_init = (hidden_init, context)
+            sampled_out, hidden_init = beam.reset_beam_decoder(batch_size, hidden_init, input[0])
+            if context is not None:
+                hidden_init, context = hidden_init
+            self.rnn.set_hidden(hidden_init)
+            del hidden_init
+
         if detach:
             #print('detach')
             self.rnn.detach_hidden()
@@ -307,7 +330,7 @@ class RNNDecoder(nn.Module):
         seq_len = input.size(0)
         out_txt = [input[0].squeeze()]
         for i in range(seq_len):
-            if self.teacher_force or i == 0:
+            if beam is None and (self.teacher_force or i == 0):
                 x = input[i]
 #                print(x.size())
             else:
@@ -324,6 +347,7 @@ class RNNDecoder(nn.Module):
 #            if i>=seq_len-2:
 #                hidden[1].register_hook(lambda x: print('hook3'))
 #                print(hidden[1].size())
+    
             cell = hidden[0]
             hidden = hidden[1]
             decoder_in = hidden
@@ -334,11 +358,14 @@ class RNNDecoder(nn.Module):
             out = self.decoder(decoder_in)
             outs.append(out)
 
-            sampled_out = sample(out, temperature).squeeze()
+            sampled_out = sample(out, temperature, beam_step=None if beam is None else lambda x: beam.step(x, self.rnn.get_hidden())).squeeze()
             out_txt.append(sampled_out.data)
 
 #        print([x.size() for x in out_txt])
-        out_txt = torch.stack(out_txt)
+        if beam is not None:
+            out_txt = beam.get_hyp()
+        else:
+            out_txt = torch.stack(out_txt)
         outs = torch.cat(outs)
 #        outs = torch.stack(outs)
 #        outs.register_hook(lambda x:print('hooked'))

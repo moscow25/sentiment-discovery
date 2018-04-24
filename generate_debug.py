@@ -27,6 +27,7 @@ from scipy.optimize import minimize
 #import seaborn as sns
 #sns.set_style({'font.family': 'monospace'})
 
+import beam_search
 
 parser = argparse.ArgumentParser(description='PyTorch Sentiment Discovery Generation/Visualization')
 
@@ -78,6 +79,10 @@ parser.add_argument('--emotion_vector', default='',
                     help='Patho to numpy file with vector to apply to hidden state (model specific)')
 parser.add_argument('--attention', action='store_true',
                     help='')
+parser.add_argument('--beam', type=int, default=1,
+                    help='beam search decoder if value > 1. Default: 1 (no beam search)')
+parser.add_argument('--topk', type=int, default=1,
+                    help='display top k decodings from beam (must be <= `--beam` and >=1)')
 args = parser.parse_args()
 
 args.data_size = 256
@@ -97,6 +102,12 @@ if args.fp16:
     model.half()
 with open(args.load_model, 'rb') as f:
     sd = torch.load(f)
+
+if 'rng' in sd:
+    del sd['rng']
+if 'cuda_rng' in sd:
+    del sd['cuda_rng']
+
 try:
 #    print('try load w/o weightnorm')
     model.load_state_dict(sd)
@@ -109,6 +120,7 @@ except:
     #print([n for n,p in model.named_parameters()])
     model.load_state_dict(sd)
     remove_weight_norm(model)
+
 #try:
 #    model.load_state_dict(sd)
 #except:
@@ -116,6 +128,23 @@ except:
 #    apply_weight_norm(model.decoder.rnn, hook_child=False)
 #    model.load_state_dict(sd)
 #    remove_weight_norm(model)
+
+beam = None
+if args.beam > 1:
+    beam = beam_search.BeamDecoder(args.beam, cuda=torch.cuda.is_available(), n_best=args.topk, vocab_pad=ord(' '))
+
+def get_unforced_output(unforced_output):
+    if beam is None:
+        unforced_output = list(unforced_output[-1].squeeze().cpu().numpy())
+        unforced_output = [chr(int(x)) for x in unforced_output]
+        unforced_output = ''.join(unforced_output).replace('\n', '\\n')
+    else:
+        unforced_output = list(unforced_output[-1])
+    #    print (unforced_output[0][0])
+    #    exit()
+        unforced_output = [''.join([chr(int(idx.cpu().data.item())) for idx in kth_best[0]]).replace('\n', '\\n') for kth_best in unforced_output]
+    #    unforced_output = [chr(int(x)) for x in unforced_output]
+    return unforced_output
 
 def get_neuron_and_polarity(sd, neuron):
     """return a +/- 1 indicating the polarity of the specified neuron in the module"""
@@ -241,7 +270,10 @@ input_text = '\n ' + args.text + ' \n'
 hidden = model.encoder.rnn.init_hidden(1)
 input = Variable(torch.from_numpy(np.array([int(ord(c)) for c in input_text]))).cuda().long()
 input = input.view(-1, 1).contiguous()
-unforced_output = model(input, temperature=args.temperature)
+
+unforced_output = model(input, temperature=args.temperature, beam=beam)
+unforced_output = get_unforced_output(unforced_output)
+
 model.decoder.teacher_force = True
 model.encoder.rnn.reset_hidden(1)
 forced_output = model(input, temperature=args.temperature)
@@ -255,7 +287,7 @@ content_hidden_state = forced_emotion_output[2][0].squeeze().data#.cpu().numpy()
 print('-----forced output-----')
 print((''.join(forced_output)).replace('\n', ' '))
 print('-----unforced output-----')
-print((''.join(unforced_output)).replace('\n', ' '))
+print(unforced_output)
 
 if not args.emotion_text:
     print('--> No emotion text given.')
@@ -267,7 +299,8 @@ input_emotion = Variable(torch.from_numpy(np.array([int(ord(c)) for c in input_e
 input_emotion = input_emotion.view(-1, 1).contiguous()
 model.decoder.teacher_force = False
 model.encoder.rnn.reset_hidden(1)
-unforced_emotion_output = model(input_emotion, temperature=args.temperature)
+unforced_emotion_output = model(input_emotion, temperature=args.temperature, beam=beam)
+unforced_emotion_output = get_unforced_output(unforced_emotion_output)
 model.decoder.teacher_force = True
 model.encoder.rnn.reset_hidden(1)
 forced_emotion_output = model(input_emotion, temperature=args.temperature)
@@ -282,14 +315,12 @@ print(outer_product_hidden_state)
 
 emotion_cell_state = forced_emotion_output[2][1].squeeze().data#.cpu().numpy()
 forced_emotion_output = list(forced_emotion_output[-1].squeeze().cpu().numpy())
-unforced_emotion_output = list(unforced_emotion_output[-1].squeeze().cpu().numpy())
 forced_emotion_output = [chr(int(x)) for x in forced_emotion_output]
-unforced_emotion_output = [chr(int(x)) for x in unforced_emotion_output]
 
 print('\n-----forced emotion output-----')
 print((''.join(forced_emotion_output)).replace('\n', ' '))
 print('-----unforced emotion output-----')
-print((''.join(unforced_emotion_output)).replace('\n', ' '))
+print(unforced_emotion_output)
 
 #print('Emotion hidden state %d' % len(emotion_hidden_state))
 #print(emotion_hidden_state)
@@ -350,15 +381,13 @@ input = Variable(torch.from_numpy(np.array([int(ord(c)) for c in input_text]))).
 input = input.view(-1, 1).contiguous()
 model.decoder.teacher_force = False
 model.encoder.rnn.reset_hidden(1)
-unforced_output = model(input, temperature=args.temperature)
+unforced_output = model(input, temperature=args.temperature, beam=beam)
+unforced_output = get_unforced_output(unforced_output)
 model.decoder.teacher_force = True
 model.encoder.rnn.reset_hidden(1)
 forced_output = model(input, temperature=args.temperature)
 forced_output = list(forced_output[-1].squeeze().cpu().numpy())
-unforced_output = list(unforced_output[-1].squeeze().cpu().numpy())
 forced_output = [chr(int(x)) for x in forced_output]
-unforced_output = [chr(int(x)) for x in unforced_output]
-
 print('-----forced output-----')
 print((''.join(forced_output)).replace('\n', ' '))
 print('-----unforced output-----')
