@@ -145,7 +145,7 @@ class RNNAutoEncoderModel(nn.Module):
 
         emb = self.process_emb(encoder_hidden,
             use_latent_hidden=self.use_latent_hidden, transform_latent_hidden=self.transform_latent_hidden,
-            use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden)
+            use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden,
             temperature=temperature, highway_hidden=self.highway_hidden, beam=beam)
         self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
         return encoder_output, decoder_output, encoder_hidden, sampled_out
