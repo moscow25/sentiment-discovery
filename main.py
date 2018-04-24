@@ -316,10 +316,10 @@ def evaluate(data_source):
     with torch.no_grad():
         for i, batch in enumerate(data_source):
             data, targets, reset_mask = get_batch(batch)
-            output_enc, output_dec, sampled_out = model(data, reset_mask=reset_mask)
+            output_enc, output_dec, encoder_hidden, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
             loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
             loss_dec = criterion(output_dec.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
-            w_enc, w_dec = 0.3, 0.7
+            w_enc, w_dec = (1-args.decoder_weight), args.decoder_weight
             loss = w_enc * loss_enc + w_dec * loss_dec
 #            output_flat = output.view(-1, ntokens).contiguous().float()
             total_loss += loss.data[0]
@@ -358,7 +358,7 @@ def train(total_iters=0):
         #loss = criterion(output.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
         loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
         loss_dec = criterion(output_dec.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
-        w_enc, w_dec = 0.6, 0.4
+        w_enc, w_dec = (1-args.decoder_weight), args.decoder_weight
         loss = w_enc * loss_enc + w_dec * loss_dec
 
         optim.zero_grad()
