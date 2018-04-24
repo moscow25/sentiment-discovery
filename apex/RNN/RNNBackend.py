@@ -416,10 +416,9 @@ class RNNCell(nn.Module):
             #    hid = hid.squeeze()
             self.hidden[i] = hid
 
-<<<<<<< HEAD
     def get_hidden(self):
         return tuple(self.hidden)
-=======
+
     def add_hidden(self, hidden):
         for i, _ in enumerate(self.hidden):
             hid = hidden[i].view(-1, self.hidden_size)
@@ -427,7 +426,6 @@ class RNNCell(nn.Module):
             #    hid = hid.squeeze()
             # self.hidden[i] += hid
             self.hidden[i] = self.hidden[i] + hid
->>>>>>> 1b7968d657cb7ee73a4f6b107d1f75568ddb7630
 
     def forward(self, input):
         """

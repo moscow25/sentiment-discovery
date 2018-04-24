@@ -146,12 +146,7 @@ class RNNAutoEncoderModel(nn.Module):
         emb = self.process_emb(encoder_hidden,
             use_latent_hidden=self.use_latent_hidden, transform_latent_hidden=self.transform_latent_hidden,
             use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden)
-<<<<<<< HEAD
-        decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask, temperature, beam)
-=======
-        decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask,
-            temperature=temperature, highway_hidden=self.highway_hidden)
->>>>>>> 1b7968d657cb7ee73a4f6b107d1f75568ddb7630
+            temperature=temperature, highway_hidden=self.highway_hidden, beam=beam)
         self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
         return encoder_output, decoder_output, encoder_hidden, sampled_out
 
@@ -159,22 +154,13 @@ class RNNAutoEncoderModel(nn.Module):
         out, (hidden, cell) = self.encoder(input, reset_mask=reset_mask)
         return out, (hidden, cell)
 
-<<<<<<< HEAD
-    def decode_out(self, input, hidden_output, reset_mask=None, temperature=0, beam=None):
-=======
-    def decode_out(self, input, hidden_output, reset_mask=None, temperature=0, highway_hidden=False):
->>>>>>> 1b7968d657cb7ee73a4f6b107d1f75568ddb7630
+    def decode_out(self, input, hidden_output, reset_mask=None, temperature=0, highway_hidden=False, beam=None):
         # print(hidden_output)
         # print(hidden_output[0].size())
         self.decoder.set_hidden(hidden_output)
         # NOTE: change here to remove teacher forcing
         # TODO: pass flags to use internal state (no teacher forcing)
-<<<<<<< HEAD
-        out, (hidden, cell), sampled_out = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1], temperature=temperature, beam=beam)
-=======
-        out, (hidden, cell), sampled_out = self.decoder(input, detach=False, reset_mask=reset_mask,
-            context=hidden_output[0][1], temperature=temperature, highway_hidden=highway_hidden)
->>>>>>> 1b7968d657cb7ee73a4f6b107d1f75568ddb7630
+        out, (hidden, cell), sampled_out = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1], temperature=temperature, highway_hidden=highway_hidden, beam=beam)
         return out, (hidden, cell), sampled_out
 
     # placeholder
@@ -332,8 +318,7 @@ class RNNDecoder(nn.Module):
 
         self.teacher_force = teacher_force
 
-<<<<<<< HEAD
-    def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0, beam=None):
+    def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0, highway_hidden=False, beam=None):
         """reset_mask and beam currently do not work together"""
         # TODO: init beam
         batch_size = input.size(1)
@@ -347,9 +332,6 @@ class RNNDecoder(nn.Module):
             self.rnn.set_hidden(hidden_init)
             del hidden_init
 
-=======
-    def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0, highway_hidden=False):
->>>>>>> 1b7968d657cb7ee73a4f6b107d1f75568ddb7630
         if detach:
             #print('detach')
             self.rnn.detach_hidden()
