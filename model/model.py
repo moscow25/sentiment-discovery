@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
+import random
 
 from apex import RNN
 #import QRNN
@@ -107,7 +108,7 @@ class RNNAutoEncoderModel(nn.Module):
         self.use_added_cell_state = False
         self.added_cell_state_vector = None
 
-    def forward(self, input, reset_mask=None, temperature=0., beam=None):
+    def forward(self, input, reset_mask=None, temperature=0., beam=None, variable_tf=0.):
         if self.freeze:
             with torch.no_grad():
                 encoder_output, encoder_hidden = self.encode_in(input, reset_mask)
@@ -147,7 +148,7 @@ class RNNAutoEncoderModel(nn.Module):
             use_latent_hidden=self.use_latent_hidden, transform_latent_hidden=self.transform_latent_hidden,
             use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden)
         decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask,
-            temperature=temperature, highway_hidden=self.highway_hidden, beam=beam)
+            temperature=temperature, highway_hidden=self.highway_hidden, beam=beam, variable_tf=variable_tf)
         self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
         return encoder_output, decoder_output, encoder_hidden, sampled_out
 
@@ -155,13 +156,14 @@ class RNNAutoEncoderModel(nn.Module):
         out, (hidden, cell) = self.encoder(input, reset_mask=reset_mask)
         return out, (hidden, cell)
 
-    def decode_out(self, input, hidden_output, reset_mask=None, temperature=0, highway_hidden=False, beam=None):
+    def decode_out(self, input, hidden_output, reset_mask=None, temperature=0, highway_hidden=False, beam=None, variable_tf=0.):
         # print(hidden_output)
         # print(hidden_output[0].size())
         self.decoder.set_hidden(hidden_output)
         # NOTE: change here to remove teacher forcing
         # TODO: pass flags to use internal state (no teacher forcing)
-        out, (hidden, cell), sampled_out = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1], temperature=temperature, highway_hidden=highway_hidden, beam=beam)
+        out, (hidden, cell), sampled_out = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1],
+            temperature=temperature, highway_hidden=highway_hidden, beam=beam, variable_tf=variable_tf)
         return out, (hidden, cell), sampled_out
 
     # placeholder
@@ -297,7 +299,8 @@ class RNNModel(nn.Module):
         self.rnn.set_hidden(hidden)
 
 class RNNDecoder(nn.Module):
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, all_layers=False, teacher_force=True, attention=False, transfer_model=None):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, all_layers=False,
+        teacher_force=True, attention=False, transfer_model=None):
         super(RNNDecoder, self).__init__()
         self.drop = nn.Dropout(dropout)
         if transfer_model is None:
@@ -319,7 +322,7 @@ class RNNDecoder(nn.Module):
 
         self.teacher_force = teacher_force
 
-    def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0, highway_hidden=False, beam=None):
+    def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0, highway_hidden=False, beam=None, variable_tf=0.):
         """reset_mask and beam currently do not work together"""
         # TODO: init beam
         batch_size = input.size(1)
@@ -334,7 +337,6 @@ class RNNDecoder(nn.Module):
             del hidden_init
 
         if detach:
-            #print('detach')
             self.rnn.detach_hidden()
         outs = []
         context = context.view(1,context.size(-2), context.size(-1))
@@ -345,41 +347,28 @@ class RNNDecoder(nn.Module):
         # HACK -- Highway assumes single-layer one-directional RNN
         # NOTE -- we += hidden state... after any linear/nonlinear transformation
         if highway_hidden:
-            #print('copying for highway')
             first_hidden = [self.rnn.rnns[0].hidden[0].clone(), self.rnn.rnns[0].hidden[1].clone()]
-            #print(first_hidden)
 
         for i in range(seq_len):
-            if beam is None and (self.teacher_force or i == 0):
+            # Use the next (true) character if teacher forcing
+            # Flip variable control coin here (since it's per-char) [and forced_control over-rides self.teacher_force]
+            # NOTE: This should be simpler -- backward compatible so that variable_tf=0.2 --> 20% we use generated character
+            variable_control_coin = (random.random() < variable_tf)
+            if beam is None and ((self.teacher_force and not variable_control_coin) or i == 0):
                 x = input[i]
-#                print(x.size())
             else:
-#                print(i)
-#                x = sample(out, temperature).squeeze()
                 x = sampled_out
-#                print(x)
-#            out_txt.append(x)
+
             emb = self.drop(self.encoder(x))
             emb = emb.view(-1, emb.size(-1))
 
             # Do no highway the first step -- already there.
             if highway_hidden and i > 0:
-                #print('using highway')
-                #print('copy state')
-                #print(first_hidden)
-                #print('current state')
-                #print(self.rnn.rnns[0].hidden)
                 self.rnn.rnns[0].add_hidden(first_hidden)
-                #print('after copy')
-                #print(self.rnn.rnns[0].hidden)
 
-#            if i>=seq_len-2:
-                #print('rnn_hook', len(self.rnn._backward_hooks))
+            # Execute the RNN step
             _, hidden = self.rnn(emb.unsqueeze(0), reset_mask=reset_mask[i] if reset_mask is not None else None)
-#            if i>=seq_len-2:
-#                hidden[1].register_hook(lambda x: print('hook3'))
-#                print(hidden[1].size())
-    
+
             cell = hidden[0]
             hidden = hidden[1]
             decoder_in = hidden

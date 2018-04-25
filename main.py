@@ -310,9 +310,9 @@ def cleanup_text(text):
     t = t.replace('\t', ' ')
     return ''.join(x for x in t if (31 < ord(x) < 127))
 
-def should_teacher_force():
-    p = random.random()
-    return p >= args.force_ctrl
+#def should_teacher_force():
+#    p = random.random()
+#    return p >= args.force_ctrl
 
 def evaluate(data_source):
     # Turn on evaluation mode which disables dropout.
@@ -345,14 +345,14 @@ def train(total_iters=0):
     if args.blowup_restore:
         print('running with args.blowup_restore -- in case model explodes and needs reset')
     else:
-        print('running *without* args.blowup_restore -- ur in danger if model blows up and keeps running.') 
+        print('running *without* args.blowup_restore -- ur in danger if model blows up and keeps running.')
 
     for i, batch in enumerate(train_data):
 
         data, targets, reset_mask = get_batch(batch)
         #output, hidden = model(data, reset_mask=reset_mask)
-        rnn_model.decoder.teacher_force = should_teacher_force()
-        output_enc, output_dec, encoder_hidden, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
+        #rnn_model.decoder.teacher_force = should_teacher_force()
+        output_enc, output_dec, encoder_hidden, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature, variable_tf=args.force_ctrl)
 
         if i % 1000 == 0:
             print_len = min(args.batch_size, 3)
@@ -363,7 +363,7 @@ def train(total_iters=0):
             print('\n'.join([''.join(cleanup_text(text)) for text in encoder_text[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
             print('-------')
             print('\n'.join([''.join(cleanup_text(text)) for text in decoder_text[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
-            # TODO: Decode sampled_out string via char conversion 
+            # TODO: Decode sampled_out string via char conversion
             #print('-------')
             #print('\n'.join([''.join(cleanup_text(text)) for text in sampled_out[:print_len]]).encode('utf-8').decode('ascii','backslashreplace'))
 
