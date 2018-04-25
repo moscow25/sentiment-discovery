@@ -342,6 +342,11 @@ def train(total_iters=0):
     ntokens = args.data_size
     hidden = init_hidden(args.batch_size)
     curr_loss = 0.
+    if args.blowup_restore:
+        print('running with args.blowup_restore -- in case model explodes and needs reset')
+    else:
+        print('running *without* args.blowup_restore -- ur in danger if model blows up and keeps running.') 
+
     for i, batch in enumerate(train_data):
 
         data, targets, reset_mask = get_batch(batch)
@@ -394,7 +399,8 @@ def train(total_iters=0):
             # if fp16 optimizer skips gradient step due to explosion do not step lr
             if not optim.overflow:
                 LR.step()
-            elif optim.blowup_restore and optim.loss_scale == 1 and args.dynamic_loss_scale:
+            elif args.blowup_restore and optim.loss_scale == 1 and args.dynamic_loss_scale:
+                print('Danger! Hitting blowup. Try to do blowup restore')
                 iter2load = max(0, (int(e/args.log_interval)-2)*args.log_interval)
                 model.load_state_dict(torch.load(os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(iter2load),))))
                 optim.load_state_dict(torch.load(os.path.join(os.path.splitext(args.save)[0], 'optim', 'e%s.pt'%(str(iter2load),))))
