@@ -401,7 +401,7 @@ def train(total_iters=0):
                 LR.step()
             elif args.blowup_restore and optim.loss_scale == 1 and args.dynamic_loss_scale:
                 print('Danger! Hitting blowup. Try to do blowup restore')
-                iter2load = max(0, (int(e/args.log_interval)-2)*args.log_interval)
+                iter2load = max(0, (int((i+total_iters)/args.log_interval)-2)*args.log_interval)
                 model.load_state_dict(torch.load(os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(iter2load),))))
                 optim.load_state_dict(torch.load(os.path.join(os.path.splitext(args.save)[0], 'optim', 'e%s.pt'%(str(iter2load),))))
                 LR.step(iter2load)
