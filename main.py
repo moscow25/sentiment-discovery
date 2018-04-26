@@ -246,6 +246,7 @@ if not args.no_weight_norm:
         apply_weight_norm(model.decoder.rnn, hook_child=True)
 
 # create optimizer and fp16 models
+args.save_optim = args.save_optim or args.blowup_restore
 optimizer_params = None
 if not args.freeze:
     optimizer_params = model.parameters()
@@ -399,10 +400,10 @@ def train(total_iters=0):
             # if fp16 optimizer skips gradient step due to explosion do not step lr
             if not optim.overflow:
                 LR.step()
-            elif args.blowup_restore and optim.loss_scale == 1 and args.dynamic_loss_scale:
-                print('Danger! Hitting blowup. Try to do blowup restore')
-                iter2load = max(0, (int((i+total_iters)/args.log_interval)-2)*args.log_interval)
-                model.load_state_dict(torch.load(os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(iter2load),))))
+            if (args.blowup_restore and optim.loss_scale == 1 and args.dynamic_loss_scale) or i == 30:
+                iter2load = max(0, (int((total_iters)/args.save_iters)-2)*args.save_iters)
+                print('Danger! Hitting blowup. Try to do blowup restore for chkpt '+str(iter2load))
+                rnn_model.load_state_dict(torch.load(os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(iter2load),))))
                 optim.load_state_dict(torch.load(os.path.join(os.path.splitext(args.save)[0], 'optim', 'e%s.pt'%(str(iter2load),))))
                 LR.step(iter2load)
 
