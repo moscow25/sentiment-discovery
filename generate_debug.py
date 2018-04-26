@@ -11,6 +11,9 @@ import math
 import argparse
 
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 from torch.autograd import Variable
 
 from apex.reparameterization import apply_weight_norm, remove_weight_norm
@@ -266,7 +269,7 @@ model.eval()
 # Run through text -- no emotion transfer
 print('Text autoencoder -- no emotion xfer')
 
-input_text = '\n ' + args.text + ' \n'
+input_text = ' ' + args.text + ' '
 hidden = model.encoder.rnn.init_hidden(1)
 input = Variable(torch.from_numpy(np.array([int(ord(c)) for c in input_text]))).cuda().long()
 input = input.view(-1, 1).contiguous()
@@ -277,10 +280,10 @@ unforced_output = get_unforced_output(unforced_output)
 model.decoder.teacher_force = True
 model.encoder.rnn.reset_hidden(1)
 forced_output = model(input, temperature=args.temperature)
+# Capture content encoder hidden state.
+content_hidden_state = forced_output[2][0].squeeze().data#.cpu().numpy()
 forced_output = list(forced_output[-1].squeeze().cpu().numpy())
 forced_output = [chr(int(x)) for x in forced_output]
-# Capture content encoder hidden state.
-content_hidden_state = forced_emotion_output[2][0].squeeze().data#.cpu().numpy()
 
 print('-----forced output-----')
 print((''.join(forced_output)).replace('\n', ' '))
@@ -292,7 +295,7 @@ if not args.emotion_text:
     exit()
 
 # Now try emotion text -- by itself. Save encoder state
-input_emotion_text = '\n ' + args.emotion_text
+input_emotion_text = ' ' + args.emotion_text + ' '
 input_emotion = Variable(torch.from_numpy(np.array([int(ord(c)) for c in input_emotion_text]))).cuda().long()
 input_emotion = input_emotion.view(-1, 1).contiguous()
 model.decoder.teacher_force = False
@@ -301,15 +304,35 @@ unforced_emotion_output = model(input_emotion, temperature=args.temperature, bea
 unforced_emotion_output = get_unforced_output(unforced_emotion_output)
 model.decoder.teacher_force = True
 model.encoder.rnn.reset_hidden(1)
+
+
+# If we want to get the Gram over several steps of the emo text?
+emo_steps = min(len(input_emotion_text)-10, 10) 
+all_grams = []
+for s in range(emo_steps):
+    d = emo_steps - s - 1
+    part_emo_text = input_emotion_text[:-d]
+    # Skip all states in the middle of words
+    if not(d == 0 or input_emotion_text[-d] == ' ') or len(part_emo_text) == 0:
+        continue
+    print(part_emo_text)
+    part_emo_input = Variable(torch.from_numpy(np.array([int(ord(c)) for c in part_emo_text]))).cuda().long()
+    part_emo_input = part_emo_input.view(-1, 1).contiguous()
+    part_output = model(part_emo_input, temperature=args.temperature)
+    part_hid_state = part_output[2][0].squeeze().data
+    part_gram = torch.ger(part_hid_state, part_hid_state).cpu().numpy()
+    all_grams.append(part_gram)
+all_grams = np.array(all_grams)
+average_gram = np.mean(all_grams, axis=0)
+
 forced_emotion_output = model(input_emotion, temperature=args.temperature)
 # Key is that we capture the emotion encoder hidden state.
 emotion_hidden_state = forced_emotion_output[2][0].squeeze().data#.cpu().numpy()
 
 # Compute "outer product" on hidden state
 # TODO: Average outer product over steps...
-print(forced_emotion_output[2])
-outer_product_hidden_state = torch.ger(emotion_hidden_state, emotion_hidden_state)
-print(outer_product_hidden_state)
+#outer_product_hidden_state = torch.ger(emotion_hidden_state, emotion_hidden_state)
+outer_product_hidden_state=average_gram
 
 emotion_cell_state = forced_emotion_output[2][1].squeeze().data#.cpu().numpy()
 forced_emotion_output = list(forced_emotion_output[-1].squeeze().cpu().numpy())
@@ -373,6 +396,99 @@ if args.emotion_vector:
 # Run through text -- with attempted emotion transfer
 print('\nText autoencoder -- attempt emotion xfer')
 
+input_text = ' ' + args.text + ' '
+hidden = model.encoder.rnn.init_hidden(1)
+input = Variable(torch.from_numpy(np.array([int(ord(c)) for c in input_text]))).cuda().long()
+input = input.view(-1, 1).contiguous()
+model.decoder.teacher_force = False
+model.encoder.rnn.reset_hidden(1)
+unforced_output = model(input, temperature=args.temperature, beam=beam)
+unforced_output = get_unforced_output(unforced_output)
+model.decoder.teacher_force = True
+model.encoder.rnn.reset_hidden(1)
+forced_output = model(input, temperature=args.temperature)
+forced_output = list(forced_output[-1].squeeze().cpu().numpy())
+forced_output = [chr(int(x)) for x in forced_output]
+print('-----forced output-----')
+print((''.join(forced_output)).replace('\n', ' '))
+print('-----unforced output-----')
+print((''.join(unforced_output)).replace('\n', ' '))
+
+# Need SGD approach to style loss.
+class ContentLoss(nn.Module):
+    def __init__(self, target,):
+        super(ContentLoss, self).__init__()
+        self.target = target.detach()
+
+    def forward(self, input):
+        self.loss = F.mse_loss(input, self.target)
+        return input
+
+class StyleLoss(nn.Module):
+    def __init__(self, target_feature):
+        super(StyleLoss, self).__init__()
+        self.target = target_feature.detach()
+    def forward(self, input):
+        G = torch.ger(input,input)
+        self.loss = F.mse_loss(G, self.target)
+        return input
+
+
+fit_hidden = content_hidden_state.clone()
+print(fit_hidden)
+fit_hidden = Variable(fit_hidden)
+print(fit_hidden)
+fit_hidden.requires_grad = True
+
+xfer_model = nn.Sequential()
+content_loss = ContentLoss(content_hidden_state)
+xfer_model.add_module("content_loss_{}".format(0), content_loss)
+outer_product_hidden_state = torch.from_numpy(outer_product_hidden_state).cuda()
+style_loss = StyleLoss(outer_product_hidden_state)
+xfer_model.add_module("style_loss_{}".format(0), style_loss)
+optimizer = optim.LBFGS([fit_hidden])
+
+num_steps = 20
+style_weight = 200 # 100. #200.
+content_weight = 1.
+if True:
+    print('Optimizing..')
+    run = [0]
+    while run[0] <= num_steps:
+
+        def closure():
+            optimizer.zero_grad()
+            xfer_model(fit_hidden)
+            style_score = 0
+            content_score = 0
+
+            style_score = style_loss.loss
+            content_score += content_loss.loss
+
+            style_score *= style_weight
+            content_score *= content_weight
+
+            loss = style_score + content_score
+            loss.backward()
+
+            run[0] += 1
+            if run[0] % 1 == 0:
+                #print("run {}:".format(run))
+                print('run {} Style Loss : {:8f} Content Loss: {:8f}'.format(
+                    run, style_score.item(), content_score.item()))
+
+            return style_score + content_score
+
+        optimizer.step(closure)
+
+    print(fit_hidden)
+
+
+# Try the learned hidden state?
+model.emotion_hidden_state = fit_hidden
+# How much do we boost?
+model.hidden_boost_factor = args.emotion_factor
+
 input_text = '\n ' + args.text + ' \n'
 hidden = model.encoder.rnn.init_hidden(1)
 input = Variable(torch.from_numpy(np.array([int(ord(c)) for c in input_text]))).cuda().long()
@@ -391,27 +507,8 @@ print((''.join(forced_output)).replace('\n', ' '))
 print('-----unforced output-----')
 print((''.join(unforced_output)).replace('\n', ' '))
 
-# Style transfer...
-# Experimental -- try solving for X so that min(||X-A||+||style(X)-style(B)||)
-# where style is the gram matrix over final B, or averaged over multiple steps
 
-def gram_transfer_loss(emb,content_emb,style_gram,style_weight):
-    content_weight = 1.0 - style_weight
-    content_loss = np.average((emb - content_emb)**2)
-    style_loss = np.average((np.outer(emb, emb) - style_gram)**2)
-    return content_weight*content_loss + style_weight*style_loss
-#    return np.sum( ((coord[0] - x)**2) + ((coord[1] - y)**2) - (r**2) )
-
-print('Attempting content/emotion style transfer')
-print('content hidden state')
-print(content_hidden_state)
-print('emotion hidden state')
-print(emotion_hidden_state)
-STYLE_WEIGHT = 0.1
-res = minimize(gram_transfer_loss,content_hidden_state,args = [content_hidden_state,outer_product_hidden_state,STYLE_WEIGHT])
-print('Completed style transfer')
-
-print(res)
+#print(res)
 
 exit()
 
