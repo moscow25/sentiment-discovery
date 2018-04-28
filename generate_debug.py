@@ -79,7 +79,9 @@ parser.add_argument('--num_emotion_neurons', type=int, default='25',
 parser.add_argument('--emotion_factor', type=float, default='0.2',
                     help='Interpolate from emotion embedding -- 0.0 to 1.0')
 parser.add_argument('--emotion_vector', default='',
-                    help='Patho to numpy file with vector to apply to hidden state (model specific)')
+                    help='Path to numpy file with vector to apply to hidden state (model specific)')
+parser.add_argument('--emotion_gram_matrix', default='',
+                    help='Gram matrix for average emotion in a category (which you try to match?)')
 parser.add_argument('--attention', action='store_true',
                     help='')
 parser.add_argument('--beam', type=int, default=1,
@@ -307,7 +309,7 @@ model.encoder.rnn.reset_hidden(1)
 
 
 # If we want to get the Gram over several steps of the emo text?
-emo_steps = min(len(input_emotion_text)-10, 10) 
+emo_steps = min(len(input_emotion_text)-10, 2) 
 all_grams = []
 for s in range(emo_steps):
     d = emo_steps - s - 1
@@ -444,12 +446,17 @@ xfer_model = nn.Sequential()
 content_loss = ContentLoss(content_hidden_state)
 xfer_model.add_module("content_loss_{}".format(0), content_loss)
 outer_product_hidden_state = torch.from_numpy(outer_product_hidden_state).cuda()
+if args.emotion_gram_matrix:
+    print('Loading emotion gram matrix from %s' % args.emotion_gram_matrix)
+    outer_product_hidden_state = np.load(args.emotion_gram_matrix)
+    print(outer_product_hidden_state.shape)
+    outer_product_hidden_state = torch.from_numpy(outer_product_hidden_state).float().cuda()
 style_loss = StyleLoss(outer_product_hidden_state)
 xfer_model.add_module("style_loss_{}".format(0), style_loss)
 optimizer = optim.LBFGS([fit_hidden])
 
 num_steps = 20
-style_weight = 200 # 100. #200.
+style_weight = 200 # 200 # 100. #200.
 content_weight = 1.
 if True:
     print('Optimizing..')
