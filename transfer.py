@@ -53,13 +53,20 @@ parser.add_argument('--write_results', default='',
                     help='write results of model on test (or train if none is specified) data to specified filepath [only supported for csv datasets currently]')
 parser.add_argument('--use_cached', action='store_true',
                     help='reuse cached featurizations from a previous from last time')
+parser.add_argument('--save_gram', action='store_true',
+                    help='compute average gram matrix of hidden states of positive training examples. NOTE: extremely expensive (250 max) and inefficient implementation')
 
 data_config, data_parser = configure_data(parser)
 
-#data_parser.set_defaults(split='1.', data='data/binary_sst/train.csv')
-#data_parser.set_defaults(valid='data/binary_sst/val.csv', test='data/binary_sst/test.csv')
-data_parser.set_defaults(split='1.', data='data/binary_sst/anger_vs_all_data.csv')
-data_parser.set_defaults(valid='data/binary_sst/anger_vs_all_data_val.csv', test='data/binary_sst/anger_vs_all_data_test.csv')
+# Normal Binary sentiment data -- large
+data_parser.set_defaults(split='1.', data='data/binary_sst/train.csv')
+data_parser.set_defaults(valid='data/binary_sst/val.csv', test='data/binary_sst/test.csv')
+# If we want Gram matrix -- need much smaller
+#data_parser.set_defaults(split='1.', data='data/binary_sst/anger_vs_all_data.csv')
+#data_parser.set_defaults(valid='data/binary_sst/anger_vs_all_data_val.csv', test='data/binary_sst/anger_vs_all_data_test.csv')
+# Samuel L Jackson -- who deserves a Sam Matrix
+data_parser.set_defaults(split='1.', data='data/jokes/1L_samjackson_data_val.csv')
+data_parser.set_defaults(valid='data/jokes/1L_samjackson_data_val.csv', test='data/jokes/1L_samjackson_data_test.csv')
 
 args = parser.parse_args()
 
@@ -154,12 +161,10 @@ def transform(model, text):
                 labels = []
             labels.append(labels_batch.data.cpu().numpy())
             features_hidden.append(hidden.data.cpu().numpy())
-            #print(hidden)
-            #gram_hidden.append(torch.ger(hidden, hidden).data.cpu().numpy())
-            # immitate torch.ger (outer product) at a batch level
-            hidden_gram = torch.bmm(hidden.unsqueeze(2), hidden.unsqueeze(1)).data.cpu().numpy()
-            #print(hidden_gram.shape)
-            gram_hidden.append(hidden_gram)
+            if args.save_gram:
+                # immitate torch.ger (outer product) at a batch level
+                hidden_gram = torch.bmm(hidden.unsqueeze(2), hidden.unsqueeze(1)).data.cpu().numpy()
+                gram_hidden.append(hidden_gram)
             features.append(cell.data.cpu().numpy())
             #print(cell)
             #print(extra_transform(cell))
@@ -182,7 +187,8 @@ def transform(model, text):
 
     if not first_feature:
         features_hidden = (np.concatenate(features_hidden))
-        gram_hidden = (np.concatenate(gram_hidden))
+        if args.save_gram:
+            gram_hidden = (np.concatenate(gram_hidden))
         features = (np.concatenate(features))
         features_xform = (np.concatenate(features_xform))
         labels = (np.concatenate(labels).flatten())
@@ -203,14 +209,12 @@ def transform(model, text):
     labels_ave_vector = pos_labels_average - neg_labels_average
 
     # Also compute positives only -- on a secondary group, like Gram matrix [so we can imitate it]
-    ps_sum = np.sum(labels)
-    #print(ps_sum)
-    #print(fs)
-    #print(labels.reshape((labels.shape[0],1)))
-    ps_labels_average = fs * np.tile(labels.reshape((labels.shape[0],1)), (1,args.nhid)).reshape((labels.shape[0],args.nhid,1))
-    print(ps_labels_average)
-    ps_labels_average = np.sum(ps_labels_average, axis=0) / pos_sum
-    print(ps_labels_average)
+    if args.save_gram:
+        ps_sum = np.sum(labels)
+        ps_labels_average = fs * np.tile(labels.reshape((labels.shape[0],1)), (1,args.nhid)).reshape((labels.shape[0],args.nhid,1))
+        ps_labels_average = np.sum(ps_labels_average, axis=0) / pos_sum
+    else:
+        ps_labels_average = []
 
     return f, labels, labels_ave_vector, ps_labels_average
 
@@ -399,12 +403,12 @@ print('Saving topAveVector for top %d neurons: %s' % (num_top, topAvePath))
 np.save(topAvePath, topAve)
 
 # Secondary average
-topAveS = trAveS
-
-# Save secondary vector -- Gram matrix or otherwise
-topAveSecondaryPath = os.path.join(save_root, 'topAveSecondaryVector')
-print('Saving topAveSecondaryVector for all neurons: %s' % (topAveSecondaryPath))
-np.save(topAveSecondaryPath, topAveS)
+if args.save_gram:
+    topAveS = trAveS
+    # Save secondary vector -- Gram matrix or otherwise
+    topAveSecondaryPath = os.path.join(save_root, 'topAveSecondaryVector')
+    print('Saving topAveSecondaryVector for all neurons: %s' % (topAveSecondaryPath))
+    np.save(topAveSecondaryPath, topAveS)
 
 vaXt, vaY = None, None
 if val_data is not None:

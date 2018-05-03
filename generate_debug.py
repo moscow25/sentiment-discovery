@@ -309,7 +309,7 @@ model.encoder.rnn.reset_hidden(1)
 
 
 # If we want to get the Gram over several steps of the emo text?
-emo_steps = min(len(input_emotion_text)-10, 2) 
+emo_steps = min(len(input_emotion_text)-10, 50) 
 all_grams = []
 for s in range(emo_steps):
     d = emo_steps - s - 1
@@ -456,7 +456,7 @@ xfer_model.add_module("style_loss_{}".format(0), style_loss)
 optimizer = optim.LBFGS([fit_hidden])
 
 num_steps = 20
-style_weight = 200 # 200 # 100. #200.
+style_weight = 50 # 100 # 200 # 100. #200.
 content_weight = 1.
 if True:
     print('Optimizing..')

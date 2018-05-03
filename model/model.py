@@ -39,8 +39,8 @@ class RNNAutoEncoderModel(nn.Module):
     def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
                 tie_weights=True, freeze=False, teacher_force=True,
                 attention=False, init_transform_id=False,
-                use_latent_hidden=False, transform_latent_hidden=False, latent_tanh=False,
-                use_cell_hidden=False, transform_cell_hidden=False, decoder_highway_hidden=False):
+                use_latent_hidden=True, transform_latent_hidden=True, latent_tanh=False,
+                use_cell_hidden=False, transform_cell_hidden=False, decoder_highway_hidden=True):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
