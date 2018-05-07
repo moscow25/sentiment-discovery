@@ -9,6 +9,9 @@ Assume that examples are pickled.
 
 """
 
+# Do we need same # pos and negatives?
+CLASS_BALANCE = False
+
 # Remove artifacts -- mostly badly rendered emoji
 def cleanup_text(t, debug = False):
     # First attempt at unreadable characters
@@ -28,7 +31,7 @@ def cleanup_text(t, debug = False):
     return t_re
 
 # drop items that don't fit -- default to something that could be a tweet
-MIN_LENGTH = 60
+MIN_LENGTH = 80 # 60
 MAX_LENGTH = 280
 def filter_length(arr, min_len = MIN_LENGTH, max_len = MAX_LENGTH):
     bad_indices = []
@@ -40,8 +43,10 @@ def filter_length(arr, min_len = MIN_LENGTH, max_len = MAX_LENGTH):
 # in pickle format
 #positives_filenames = ["JennyJohnsonHi5.pickle", "meganamram.pickle", "anthonyjeselnik.pickle", "FunnyAsianDude.pickle"] #["humorous_oneliners.pickle"]
 #negatives_filenames = ["nvidia_tweets.pickle", "elonmusk.pickle"] #, "wiki_sentences.pickle"]
-positives_filenames = ["GSElevator.pickle", "SteveMartinToGo.pickle", "SICKOFWOLVES.pickle", "shitmydadsays.pickle", "JennyJohnsonHi5.pickle", "meganamram.pickle", "anthonyjeselnik.pickle", "FunnyAsianDude.pickle"]
-negatives_filenames = ["nvidia_tweets.pickle", "elonmusk.pickle", "cnn.pickle", "espn.pickle", "CARandDRIVER.pickle", "fredwilson.pickle", "SenTedCruz.pickle"]
+#positives_filenames = ["GSElevator.pickle", "SteveMartinToGo.pickle", "SICKOFWOLVES.pickle", "shitmydadsays.pickle", "JennyJohnsonHi5.pickle", "meganamram.pickle", "anthonyjeselnik.pickle", "FunnyAsianDude.pickle"]
+#negatives_filenames = ["nvidia_tweets.pickle", "elonmusk.pickle", "cnn.pickle", "espn.pickle", "CARandDRIVER.pickle", "fredwilson.pickle", "SenTedCruz.pickle"]
+positives_filenames = ["SamuelLJackson.pickle"]
+negatives_filenames = []
 
 # Import the files into memory
 pos_texts = []
@@ -85,9 +90,10 @@ np.random.shuffle(neg_texts)
 
 
 # Take the min and class balance
-min_len = min(len(pos_texts), len(neg_texts))
-pos_texts = pos_texts[:min_len]
-neg_texts = neg_texts[:min_len]
+if CLASS_BALANCE:
+    min_len = min(len(pos_texts), len(neg_texts))
+    pos_texts = pos_texts[:min_len]
+    neg_texts = neg_texts[:min_len]
 
 
 print('Loaded %d pos and %d neg examples before saving.' % (len(pos_texts), len(neg_texts)))
@@ -107,9 +113,11 @@ TEST_PERCENT = 0.2
 test_set=TEST_PERCENT
 val_set=VAL_PERCENT
 cat_prefix='1L'
-category='tweet_comedy12_v_nv_musk_news_cars_wilson_cruz_tweets'
+#category='tweet_comedy12_v_nv_musk_news_cars_wilson_cruz_tweets'
+category='SamJackson'
 
 vs_all_string = ''
+#basepath = 'SamJackson'
 basepath = 'jokes'
 fileout_path = basepath+'/'+cat_prefix+'_'+category.lower()+'/'+cat_prefix+'_'+category.lower()+vs_all_string+'_data.csv'
 fileout_path_test = basepath+'/'+cat_prefix+'_'+category.lower()+'/'+cat_prefix+'_'+category.lower()+vs_all_string+'_data_test.csv'
