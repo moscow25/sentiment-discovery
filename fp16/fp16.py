@@ -116,7 +116,8 @@ class FP16_Optimizer(object):
         # print("self.fp32_flattened_groups = ", self.fp32_flattened_groups)
         # print("self.fp16_param_groups = ", self.fp16_param_groups)
 
-        self.optimizer = optimizer.__class__(optimizer.param_groups)
+        #self.optimizer = optimizer.__class__(optimizer.param_groups)
+        self.optimizer = optimizer
 
         # self.optimizer.load_state_dict(optimizer.state_dict())
 
