@@ -17,6 +17,7 @@ from model import DistributedDataParallel as DDP
 from apex.reparameterization import apply_weight_norm, remove_weight_norm
 from configure_data import configure_data
 from learning_rates import LinearLR
+from LARC import LARC
 
 parser = argparse.ArgumentParser(description='PyTorch Sentiment-Discovery Language Modeling')
 parser.add_argument('--model', type=str, default='mLSTM',
@@ -104,6 +105,12 @@ parser.add_argument('--blowup_restore', action='store_true',
 # Encoder/decoder loss ctrl
 parser.add_argument('--decoder_weight', type=float, default=.7,
                     help='decoder/encoder loss weighting. encoder_weight=1-decoder_weight. Default: .7')
+
+# Boris LARC optimizer
+parser.add_argument('--LARC', action='store_true',
+                    help='use LARC optimizer. (not working with FP16)')
+parser.add_argument('--trust_coeff', type=float, default=.02,
+                   help='trust coefficient value for LARC optimizer')
 
 # Add dataset args to argparser and set some defaults
 data_config, data_parser = configure_data(parser)
@@ -254,12 +261,16 @@ else:
     optimizer_params = list(model.decoder.parameters())+list(model.latent_hidden_transform.parameters())+list(model.latent_cell_transform.parameters())
 if args.fp16:
     model = FP16_Module(model)
-    optim = eval('torch.optim.'+args.optim)(optimizer_params, lr=args.lr)
-    optim = FP16_Optimizer(optim,
+    optim = eval('torch.optim.'+args.optim)(model.parameters(), lr=args.lr)
+    if args.LARC:
+        optim = LARC(optim, args.trust_coeff)
+    optim = FP16_Optimizer(optim, 
                            static_loss_scale=args.loss_scale,
                            dynamic_loss_scale=args.dynamic_loss_scale)
 else:
-    optim = eval('torch.optim.'+args.optim)(optimizer_params, lr=args.lr)
+    optim = eval('torch.optim.'+args.optim)(model.parameters(), lr=args.lr)
+    optim = LARC(optim, args.trust_coeff)
+
 
 # add linear learning rate scheduler
 if train_data is not None:
