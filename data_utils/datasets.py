@@ -140,6 +140,9 @@ class csv_dataset(data.Dataset):
         """process string and return string,label,and stringlen"""
         x = self.X[index]
         y = self.Y[index]
+        # Ugly hack if encoded as "b'1.0'" -- which happens from bad UTF8 conversions
+        if isinstance(y, str) and len(y) >= 4:
+            y = float(y[2:-1])
         return (x, len(x)), int(y)
 
     def write(self, writer_gen=None, path=None, skip_header=False):

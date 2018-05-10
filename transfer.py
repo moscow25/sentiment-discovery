@@ -65,8 +65,8 @@ data_parser.set_defaults(valid='data/binary_sst/val.csv', test='data/binary_sst/
 #data_parser.set_defaults(split='1.', data='data/binary_sst/anger_vs_all_data.csv')
 #data_parser.set_defaults(valid='data/binary_sst/anger_vs_all_data_val.csv', test='data/binary_sst/anger_vs_all_data_test.csv')
 # Samuel L Jackson -- who deserves a Sam Matrix
-data_parser.set_defaults(split='1.', data='data/jokes/1L_samjackson_data_val.csv')
-data_parser.set_defaults(valid='data/jokes/1L_samjackson_data_val.csv', test='data/jokes/1L_samjackson_data_test.csv')
+#data_parser.set_defaults(split='1.', data='data/jokes/1L_samjackson_data_val.csv')
+#data_parser.set_defaults(valid='data/jokes/1L_samjackson_data_val.csv', test='data/jokes/1L_samjackson_data_test.csv')
 
 args = parser.parse_args()
 
@@ -91,7 +91,7 @@ with open(args.load_model, 'rb') as f:
     print(sd.keys())
     # Hack -- extra transform.
     extra_transform = nn.Linear(args.nhid, args.nhid).cuda()
-    if sd['cell_transform']:
+    if ('cell_transform' in sd) and sd['cell_transform']:
         extra_transform.load_state_dict(sd['cell_transform'], strict=True)
     else:
         print('WARNING -- no extra cell-cell transform')

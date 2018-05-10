@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import gc
 import time
 import math
 import torch
@@ -206,7 +207,9 @@ rnn_model = model
 #print(model._modules)
 
 if args.load != '':
-    sd = torch.load(args.load, map_location=lambda storage, loc: storage)
+    print('Attempting to load previously trained model from %s' % args.load)
+    #sd = torch.load(args.load, map_location=lambda storage, loc: storage)
+    sd = torch.load(args.load, map_location='cpu')
     #@nicky: here's how to fix the reloading problem I was talking about
     #sd['decoder']=sd['encoder']
     if 'rng' in sd:
@@ -268,6 +271,7 @@ if args.fp16:
                            static_loss_scale=args.loss_scale,
                            dynamic_loss_scale=args.dynamic_loss_scale)
 else:
+    print('Training FP32 with LARC option!')
     optim = eval('torch.optim.'+args.optim)(model.parameters(), lr=args.lr)
     optim = LARC(optim, args.trust_coeff)
 
@@ -345,7 +349,12 @@ def evaluate(data_source):
 #            total_loss += criterion(output_flat, targets.view(-1).contiguous()).data[0]
     return total_loss / max(len(data_source), 1)
 
-def train(total_iters=0):
+def train(total_iters=0, skip_training_batches=200):
+    print('About to start training')
+    gc.collect()
+    torch.cuda.empty_cache()
+    time.sleep(5)
+    print('Cleared cache.')
     # Turn on training mode which enables dropout.
     model.train()
     total_loss = 0
@@ -387,10 +396,11 @@ def train(total_iters=0):
 
         optim.zero_grad()
 
-        if args.fp16:
-            optim.backward(loss)
-        else:
-            loss.backward()
+        if i > skip_training_batches:
+            if args.fp16:
+                optim.backward(loss)
+            else:
+                loss.backward()
         total_loss += loss.data.float()
         total_enc_loss += loss_enc.data.float()
         total_dec_loss += loss_dec.data.float()
