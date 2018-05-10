@@ -5,6 +5,8 @@ import time
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import torch.distributions as D
 import random
 from torch.autograd import Variable
 
@@ -103,8 +105,12 @@ parser.add_argument('--blowup_restore', action='store_true',
                     help='employ our blowup restoring heuristic to reload old checkpoints on blow up')
 
 # Encoder/decoder loss ctrl
-parser.add_argument('--decoder_weight', type=float, default=.7,
+parser.add_argument('--decoder_weight', type=float, default=.6,
                     help='decoder/encoder loss weighting. encoder_weight=1-decoder_weight. Default: .7')
+parser.add_argument('--encoder_disc_weight', type=float, default=0.1,
+                    help='discriminator weight (from encoder hidden state directly)')
+parser.add_argument('--hidden_noise_factor', type=float, default=0.2,
+                    help='how much noise to add to real hidden states (for discriminator)')
 
 # Boris LARC optimizer
 parser.add_argument('--LARC', action='store_true',
@@ -264,7 +270,7 @@ if args.fp16:
     optim = eval('torch.optim.'+args.optim)(model.parameters(), lr=args.lr)
     if args.LARC:
         optim = LARC(optim, args.trust_coeff)
-    optim = FP16_Optimizer(optim, 
+    optim = FP16_Optimizer(optim,
                            static_loss_scale=args.loss_scale,
                            dynamic_loss_scale=args.dynamic_loss_scale)
 else:
@@ -284,7 +290,10 @@ if args.load_optim != '':
 if args.world_size > 1:
     model = DDP(model)
 
+# Per-character loss on reconstruction
 criterion = nn.CrossEntropyLoss()
+# Binary loss for discriminator (real vs fake text)
+criterion_disc = nn.BCEWithLogitsLoss()
 
 ###############################################################################
 # Training code
@@ -335,7 +344,8 @@ def evaluate(data_source):
     with torch.no_grad():
         for i, batch in enumerate(data_source):
             data, targets, reset_mask = get_batch(batch)
-            output_enc, output_dec, encoder_hidden, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
+            model.reset_hidden_state = False
+            output_enc, output_dec, encoder_hidden, encoder_disc, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
             loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
             loss_dec = criterion(output_dec.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
             w_enc, w_dec = (1-args.decoder_weight), args.decoder_weight
@@ -349,7 +359,7 @@ def train(total_iters=0):
     # Turn on training mode which enables dropout.
     model.train()
     total_loss = 0
-    total_enc_loss, total_dec_loss = 0, 0
+    total_enc_loss, total_dec_loss, total_enc_disc_loss = 0, 0, 0
     start_time = time.time()
     ntokens = args.data_size
     hidden = init_hidden(args.batch_size)
@@ -364,7 +374,12 @@ def train(total_iters=0):
         data, targets, reset_mask = get_batch(batch)
         #output, hidden = model(data, reset_mask=reset_mask)
         #rnn_model.decoder.teacher_force = should_teacher_force()
-        output_enc, output_dec, encoder_hidden, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature, variable_tf=args.force_ctrl)
+        model.reset_hidden_state = False
+        output_enc, output_dec, encoder_hidden, encoder_disc, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature, variable_tf=args.force_ctrl)
+
+        #if i % 500 == 0:
+        #    print('Real disc values:')
+        #    print(F.sigmoid(encoder_disc))
 
         if i % 1000 == 0:
             print_len = min(args.batch_size, 3)
@@ -382,8 +397,12 @@ def train(total_iters=0):
         #loss = criterion(output.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
         loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
         loss_dec = criterion(output_dec.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
-        w_enc, w_dec = (1-args.decoder_weight), args.decoder_weight
-        loss = w_enc * loss_enc + w_dec * loss_dec
+        # If training discriminator -- real samples are all 1.0
+        disc_ones = torch.ones_like(encoder_disc)
+        loss_enc_disc = criterion_disc(encoder_disc, disc_ones)
+
+        w_enc, w_dec, w_enc_disc = (1-args.decoder_weight-args.encoder_disc_weight), args.decoder_weight, args.encoder_disc_weight
+        loss = w_enc * loss_enc + w_dec * loss_dec + w_enc_disc * loss_enc_disc
 
         optim.zero_grad()
 
@@ -394,6 +413,7 @@ def train(total_iters=0):
         total_loss += loss.data.float()
         total_enc_loss += loss_enc.data.float()
         total_dec_loss += loss_dec.data.float()
+        total_enc_disc_loss += loss_enc_disc.data.float()
 
         # clipping gradients helps prevent the exploding gradient problem in RNNs / LSTMs.
         if args.clip > 0:
@@ -402,6 +422,57 @@ def train(total_iters=0):
             else:
                 optim.clip_fp32_grads(clip=args.clip)
         optim.step()
+
+
+        # Now do a batch (or X batches) with random hidden state (or another fake hidden) for discriminator
+        prev_hidden = encoder_hidden[0][0].detach()
+        encoder_hidden_mean = torch.mean(prev_hidden, dim=0).unsqueeze(0)
+        encoder_hidden_mean = encoder_hidden_mean.expand(args.batch_size, encoder_hidden_mean.shape[1])
+        encoder_hidden_stdev = torch.std(prev_hidden, dim=0).unsqueeze(0)
+        encoder_hidden_stdev = encoder_hidden_stdev.expand(args.batch_size, encoder_hidden_stdev.shape[1])
+        #print(encoder_hidden_mean)
+        #print(encoder_hidden_stdev)
+        hidden_sampler = D.normal.Normal(encoder_hidden_mean, encoder_hidden_stdev)
+        hid_sample = hidden_sampler.sample().unsqueeze(0)
+        encoder_hidden_fake = hid_sample
+
+        # Make the job harder -- average the real, and the fake
+        fake_factor = args.hidden_noise_factor
+        real_factor = 1.0 - fake_factor
+        encoder_hidden_fake = prev_hidden * real_factor + encoder_hidden_fake * fake_factor
+
+        #print(encoder_hidden_fake)
+        model.reset_hidden_state = True
+        model.reset_hidden_state_value = encoder_hidden_fake
+        output_enc, output_dec, encoder_hidden, encoder_disc, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature, variable_tf=args.force_ctrl)
+
+        #if i % 500 == 0:
+        #    print('Fake disc values:')
+        #    print(F.sigmoid(encoder_disc))
+
+        # If training discriminator -- fake samples are all 0.0
+        disc_zeros = torch.zeros_like(encoder_disc)
+        loss_enc_disc = criterion_disc(encoder_disc, disc_zeros)
+        loss = w_enc_disc * loss_enc_disc
+
+        optim.zero_grad()
+
+        if args.fp16:
+            optim.backward(loss)
+        else:
+            loss.backward()
+        total_enc_disc_loss += loss_enc_disc.data.float()
+
+        # clipping gradients helps prevent the exploding gradient problem in RNNs / LSTMs.
+        if args.clip > 0:
+            if not args.fp16:
+                torch.nn.utils.clip_grad_norm(model.parameters(), args.clip)
+            else:
+                optim.clip_fp32_grads(clip=args.clip)
+        optim.step()
+
+        # Reset for next time! Otherwise won't use real data for encoder
+        model.reset_hidden_state = False
 
         # step learning rate and log training progress
         lr = LR.get_lr()[0]
@@ -423,16 +494,17 @@ def train(total_iters=0):
             cur_loss = total_loss.item() / log_interval
             cur_enc_loss = total_enc_loss.item() / log_interval
             cur_dec_loss = total_dec_loss.item() / log_interval
+            cur_disc_enc_loss = total_enc_disc_loss.item() / (log_interval * 2.0)
             elapsed = time.time() - start_time
             print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:.2E} | ms/batch {:.3E} | \
-                  loss_enc {:.2E} | loss_dec {:.2E} | ppl {:8.2f}'.format(
+                  loss_enc {:.2E} | loss_dec {:.2E} | loss_ED {:.2E} | ppl {:8.2f}'.format(
                       epoch, i, len(train_data), lr,
-                      elapsed * 1000 / log_interval, cur_enc_loss, cur_dec_loss, math.exp(min(cur_loss, 20)),
+                      elapsed * 1000 / log_interval, cur_enc_loss, cur_dec_loss, cur_disc_enc_loss, math.exp(min(cur_loss, 20)),
                       #float(args.loss_scale) if not args.fp16 else optim.loss_scale,
                   )
             )
             total_loss = 0
-            total_enc_loss, total_dec_loss = 0, 0
+            total_enc_loss, total_dec_loss, total_enc_disc_loss = 0, 0, 0
             start_time = time.time()
             sys.stdout.flush()
 

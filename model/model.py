@@ -40,7 +40,9 @@ class RNNAutoEncoderModel(nn.Module):
                 tie_weights=True, freeze=False, teacher_force=True,
                 attention=False, init_transform_id=False,
                 use_latent_hidden=True, transform_latent_hidden=True, latent_tanh=False,
-                use_cell_hidden=False, transform_cell_hidden=False, decoder_highway_hidden=True):
+                use_cell_hidden=False, transform_cell_hidden=False, decoder_highway_hidden=True,
+                discriminator_encoder_hidden=True, disc_enc_nhid=111, disc_enc_layers=2,
+                discriminator_decoder_hidden=False, disc_dec_nhid=111, disc_dec_layers=2):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
@@ -65,6 +67,37 @@ class RNNAutoEncoderModel(nn.Module):
         self.use_cell_hidden = use_cell_hidden
         self.transform_cell_hidden = transform_cell_hidden
         self.highway_hidden = decoder_highway_hidden
+
+        # HACK -- ask model to predict if input string (or passed hidden state) is real or fake text
+        # Model -- simple 2-layer DNN. Predict 1 = real; 0 = fake text
+        # We can pass noise as fake text. Can we distinguish that? What about more natural errors?
+        self.discriminator_encoder_hidden = discriminator_encoder_hidden
+        self.disc_enc_nhid = disc_enc_nhid
+        self.disc_enc_layers = disc_enc_layers
+        self.discriminator_decoder_hidden = discriminator_decoder_hidden
+        self.disc_dec_nhid = disc_dec_nhid
+        self.disc_dec_layers = disc_dec_layers
+
+        if self.discriminator_encoder_hidden:
+            print('Building discriminator from encoder hidden state (%d x %d)' % (self.disc_enc_nhid, self.disc_enc_layers))
+            assert self.disc_enc_layers >= 1 and self.disc_enc_layers <= 3, "Hardcode 1-3 layer DNN for encoder discriminator"
+            fc1_disc_enc = nn.Linear(nhid, self.disc_enc_nhid)
+            if self.disc_enc_layers >= 2:
+                fc2_disc_enc = nn.Linear(self.disc_enc_nhid, self.disc_enc_nhid)
+            if self.disc_enc_layers >= 3:
+                fc3_disc_enc = nn.Linear(self.disc_enc_nhid, self.disc_enc_nhid)
+            disc_enc_final = nn.Linear(self.disc_enc_nhid, 1)
+            if self.disc_enc_layers == 1:
+                self.disc_enc_transform = nn.Sequential(fc1_disc_enc, nn.ReLU(), disc_enc_final)
+            elif self.disc_enc_layers == 2:
+                self.disc_enc_transform = nn.Sequential(fc1_disc_enc, nn.ReLU(),
+                    fc2_disc_enc, nn.ReLU(), disc_enc_final)
+            elif self.disc_enc_layers == 3:
+                self.disc_enc_transform = nn.Sequential(fc1_disc_enc, nn.ReLU(),
+                    fc2_disc_enc, nn.ReLU(), fc3_disc_enc, nn.ReLU(), disc_enc_final)
+            print(self.disc_enc_transform)
+        else:
+            self.disc_enc_transform = None
 
         if self.highway_hidden:
             print('Using highway (+=) -- from encoder hidden to each decoder step')
@@ -108,6 +141,10 @@ class RNNAutoEncoderModel(nn.Module):
         self.use_added_cell_state = False
         self.added_cell_state_vector = None
 
+        # For discriminator -- reset entire hidden state batch [before transformer and decoder]
+        self.reset_hidden_state = False
+        self.reset_hidden_state_value = None
+
     def forward(self, input, reset_mask=None, temperature=0., beam=None, variable_tf=0.):
         if self.freeze:
             with torch.no_grad():
@@ -144,13 +181,24 @@ class RNNAutoEncoderModel(nn.Module):
             #print(self.added_cell_state_vector)
             encoder_hidden[1][0][0] += self.added_cell_state_vector
 
+        # Reset whole encoder batch upon request -- for discriminator training
+        if self.reset_hidden_state:
+            encoder_hidden[0][0] = self.reset_hidden_state_value
+
+        # If we predict real/fake text based on encoder hidden state, apply that here.
+        # NOTE: If we manipulate encoder hidden state, do that first above.
+        if self.discriminator_encoder_hidden:
+            encoder_hidden_disc_out = self.disc_enc_transform(encoder_hidden[0][0])
+        else:
+            encoder_hidden_disc_out = None
+
         emb = self.process_emb(encoder_hidden,
             use_latent_hidden=self.use_latent_hidden, transform_latent_hidden=self.transform_latent_hidden,
             use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden)
         decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask,
             temperature=temperature, highway_hidden=self.highway_hidden, beam=beam, variable_tf=variable_tf)
         self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
-        return encoder_output, decoder_output, encoder_hidden, sampled_out
+        return encoder_output, decoder_output, encoder_hidden, encoder_hidden_disc_out, sampled_out
 
     def encode_in(self, input, reset_mask=None):
         out, (hidden, cell) = self.encoder(input, reset_mask=reset_mask)
@@ -228,6 +276,10 @@ class RNNAutoEncoderModel(nn.Module):
             sd['cell_transform'] = self.latent_cell_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
         else:
             sd['cell_transform'] = {}
+        if self.discriminator_encoder_hidden:
+            sd['disc_enc_transform'] = self.disc_enc_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
+        else:
+            sd['disc_enc_transform'] = {}
         return sd
 
     def load_state_dict(self, sd, strict=True):
@@ -238,6 +290,8 @@ class RNNAutoEncoderModel(nn.Module):
             self.latent_hidden_transform.load_state_dict(sd['hidden_transform'], strict)
         if self.latent_cell_transform is not None and sd['cell_transform']:
             self.latent_cell_transform.load_state_dict(sd['cell_transform'], strict)
+        if self.disc_enc_transform is not None and sd['disc_enc_transform']:
+            self.disc_enc_transform.load_state_dict(sd['disc_enc_transform'], strict)
 
 # Placeholder QRNN wrapper -- to support detach/reset/init RNN state
 #class myQRNN(QRNN):
