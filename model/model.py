@@ -41,7 +41,7 @@ class RNNAutoEncoderModel(nn.Module):
                 attention=False, init_transform_id=False,
                 use_latent_hidden=True, transform_latent_hidden=True, latent_tanh=False,
                 use_cell_hidden=False, transform_cell_hidden=False, decoder_highway_hidden=True,
-                discriminator_encoder_hidden=True, disc_enc_nhid=111, disc_enc_layers=2,
+                discriminator_encoder_hidden=True, disc_enc_nhid=111, disc_enc_layers=2, disconnect_disc_enc_grad = True,
                 discriminator_decoder_hidden=False, disc_dec_nhid=111, disc_dec_layers=2):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
@@ -74,6 +74,7 @@ class RNNAutoEncoderModel(nn.Module):
         self.discriminator_encoder_hidden = discriminator_encoder_hidden
         self.disc_enc_nhid = disc_enc_nhid
         self.disc_enc_layers = disc_enc_layers
+        self.disconnect_disc_enc_grad = disconnect_disc_enc_grad
         self.discriminator_decoder_hidden = discriminator_decoder_hidden
         self.disc_dec_nhid = disc_dec_nhid
         self.disc_dec_layers = disc_dec_layers
@@ -188,7 +189,12 @@ class RNNAutoEncoderModel(nn.Module):
         # If we predict real/fake text based on encoder hidden state, apply that here.
         # NOTE: If we manipulate encoder hidden state, do that first above.
         if self.discriminator_encoder_hidden:
-            encoder_hidden_disc_out = self.disc_enc_transform(encoder_hidden[0][0])
+            enc_hid = encoder_hidden[0][0]
+            # We most likely don't want to backprop encoder from discriminator here. But we can.
+            # Makes discrimination easier, but decoder has too many constaints...
+            if self.disconnect_disc_enc_grad:
+                enc_hid = enc_hid.detach()
+            encoder_hidden_disc_out = self.disc_enc_transform(enc_hid)
         else:
             encoder_hidden_disc_out = None
 
