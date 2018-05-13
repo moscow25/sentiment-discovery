@@ -41,9 +41,9 @@ class RNNAutoEncoderModel(nn.Module):
                 attention=False, init_transform_id=False,
                 use_latent_hidden=True, transform_latent_hidden=True, latent_tanh=False,
                 use_cell_hidden=False, transform_cell_hidden=False, decoder_highway_hidden=True,
-                discriminator_encoder_hidden=True, disc_enc_nhid=111, disc_enc_layers=2, disconnect_disc_enc_grad = True,
-                discriminator_decoder_hidden=True, disc_dec_nhid=133, disc_dec_layers=2, disconnect_disc_dec_grad = False,
-                combined_disc_nhid=144, combined_disc_layers=1):
+                discriminator_encoder_hidden=True, disc_enc_nhid=1024, disc_enc_layers=2, disconnect_disc_enc_grad = True,
+                discriminator_decoder_hidden=True, disc_dec_nhid=1024, disc_dec_layers=2, disconnect_disc_dec_grad = False,
+                combined_disc_nhid=1024, combined_disc_layers=1):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
@@ -368,8 +368,20 @@ class RNNAutoEncoderModel(nn.Module):
             sd['cell_transform'] = {}
         if self.discriminator_encoder_hidden:
             sd['disc_enc_transform'] = self.disc_enc_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
+            sd['disc_enc_partial_transform'] = self.disc_enc_partial_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
         else:
             sd['disc_enc_transform'] = {}
+            sd['disc_enc_partial_transform'] = {}
+        if self.discriminator_decoder_hidden:
+            sd['disc_dec_transform'] = self.disc_dec_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
+            sd['disc_dec_partial_transform'] = self.disc_dec_partial_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
+        else:
+            sd['disc_dec_transform'] = {}
+            sd['disc_dec_partial_transform'] = {}
+        if self.disc_combo_transform:
+            sd['disc_combo_transform'] = self.disc_combo_final.state_dict(prefix=prefix, keep_vars=keep_vars)
+        else:
+            sd['disc_combo_transform'] = {}
         return sd
 
     def load_state_dict(self, sd, strict=True):
