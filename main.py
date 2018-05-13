@@ -96,6 +96,9 @@ parser.add_argument('--decoder_highway_hidden', action='store_true',
 parser.add_argument('--force_ctrl', type=float, default=0.,
                     help='percentage of training with no teacher forcing. (0.2=20% no teacher forcing)')
 
+# TODO -- pass choices for training discriminator(s) for real/fake content
+
+
 # Resume training arguments @nicky
 parser.add_argument('--save_optim', action='store_true',
                     help='save optimizer in addtion to model')
@@ -345,7 +348,7 @@ def evaluate(data_source):
         for i, batch in enumerate(data_source):
             data, targets, reset_mask = get_batch(batch)
             model.reset_hidden_state = False
-            output_enc, output_dec, encoder_hidden, encoder_disc, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
+            output_enc, output_dec, encoder_hidden, encoder_disc, decoder_disc, combo_disc, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature)
             loss_enc = criterion(output_enc.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
             loss_dec = criterion(output_dec.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
             w_enc, w_dec = (1-args.decoder_weight), args.decoder_weight
@@ -359,7 +362,7 @@ def train(total_iters=0):
     # Turn on training mode which enables dropout.
     model.train()
     total_loss = 0
-    total_enc_loss, total_dec_loss, total_enc_disc_loss = 0, 0, 0
+    total_enc_loss, total_dec_loss, total_enc_disc_loss, total_dec_disc_loss, total_combo_disc_loss = 0, 0, 0, 0, 0
     start_time = time.time()
     ntokens = args.data_size
     hidden = init_hidden(args.batch_size)
@@ -375,11 +378,16 @@ def train(total_iters=0):
         #output, hidden = model(data, reset_mask=reset_mask)
         #rnn_model.decoder.teacher_force = should_teacher_force()
         model.reset_hidden_state = False
-        output_enc, output_dec, encoder_hidden, encoder_disc, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature, variable_tf=args.force_ctrl)
+        output_enc, output_dec, encoder_hidden, encoder_disc, decoder_disc, combo_disc, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature, variable_tf=args.force_ctrl)
 
-        #if i % 500 == 0:
-        #    print('Real disc values:')
-        #    print(F.sigmoid(encoder_disc))
+        # NOTE: Make sure these values are legal -- Var or return None if not specified
+        if i % 500 == 0:
+            print('Real (encoder) disc values:')
+            print(F.sigmoid(encoder_disc))
+            print('Real (decoder) disc values:')
+            print(F.sigmoid(decoder_disc))
+            print('Real (combined) disc values')
+            print(F.sigmoid(combo_disc))
 
         if i % 1000 == 0:
             print_len = min(args.batch_size, 3)
@@ -400,9 +408,12 @@ def train(total_iters=0):
         # If training discriminator -- real samples are all 1.0
         disc_ones = torch.ones_like(encoder_disc)
         loss_enc_disc = criterion_disc(encoder_disc, disc_ones)
+        loss_dec_disc = criterion_disc(decoder_disc, disc_ones)
+        loss_combo_disc = criterion_disc(combo_disc, disc_ones)
+        loss_disc = (loss_enc_disc + loss_dec_disc + loss_combo_disc) / 3.0
 
         w_enc, w_dec, w_enc_disc = (1-args.decoder_weight-args.encoder_disc_weight), args.decoder_weight, args.encoder_disc_weight
-        loss = w_enc * loss_enc + w_dec * loss_dec + w_enc_disc * loss_enc_disc
+        loss = w_enc * loss_enc + w_dec * loss_dec + w_enc_disc * loss_disc
 
         optim.zero_grad()
 
@@ -414,6 +425,8 @@ def train(total_iters=0):
         total_enc_loss += loss_enc.data.float()
         total_dec_loss += loss_dec.data.float()
         total_enc_disc_loss += loss_enc_disc.data.float()
+        total_dec_disc_loss += loss_dec_disc.data.float()
+        total_combo_disc_loss += loss_combo_disc.data.float()
 
         # clipping gradients helps prevent the exploding gradient problem in RNNs / LSTMs.
         if args.clip > 0:
@@ -438,22 +451,47 @@ def train(total_iters=0):
 
         # Make the job harder -- average the real, and the fake
         fake_factor = args.hidden_noise_factor
-        real_factor = 1.0 - fake_factor
-        encoder_hidden_fake = prev_hidden * real_factor + encoder_hidden_fake * fake_factor
+        #real_factor = 1.0 - fake_factor
+        #encoder_hidden_fake = prev_hidden * real_factor + encoder_hidden_fake * fake_factor
+        # NOTE: Instead, vary noise level along a mean and stdev also (include bigger and smaller noise points within the batch)
+        fake_factor_mean = torch.FloatTensor([fake_factor]).unsqueeze(0)
+        fake_factor_mean = fake_factor_mean.expand(args.batch_size, 1)
+        # TODO: Add another noise stdev factor? Overkill.
+        implied_fake_stdev = min(0.2, args.hidden_noise_factor / 2.0)
+        fake_factor_stdev = torch.FloatTensor([implied_fake_stdev]).unsqueeze(0)
+        fake_factor_stdev = fake_factor_stdev.expand(args.batch_size, 1)
+        fake_factor_sampler = D.normal.Normal(fake_factor_mean, fake_factor_stdev)
+        fake_factor_vector = fake_factor_sampler.sample()
+        # Set a floor on minimum noise
+        fake_factor_vector = torch.clamp(fake_factor_vector, 0.05, 1.0)
+        #print("fake factor vector for %.3f mean and %.3f stdev. " % (fake_factor, implied_fake_stdev))
+        #print(fake_factor_vector)
+        #print(torch.mean(fake_factor_vector))
+        real_factor_vector = 1.0 - fake_factor_vector
+        encoder_hidden_fake = prev_hidden * real_factor_vector + encoder_hidden_fake * fake_factor_vector
+
 
         #print(encoder_hidden_fake)
         model.reset_hidden_state = True
         model.reset_hidden_state_value = encoder_hidden_fake
-        output_enc, output_dec, encoder_hidden, encoder_disc, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature, variable_tf=args.force_ctrl)
+        output_enc, output_dec, encoder_hidden, encoder_disc, decoder_disc, combo_disc, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature, variable_tf=args.force_ctrl)
 
-        #if i % 500 == 0:
-        #    print('Fake disc values:')
-        #    print(F.sigmoid(encoder_disc))
+        # NOTE: Make sure these values are legal -- Var or return None if not specified
+        if i % 500 == 0:
+            print('Fake (encoder) disc values:')
+            print(F.sigmoid(encoder_disc))
+            print('Fake (decoder) disc values:')
+            print(F.sigmoid(decoder_disc))
+            print('Fake (combined) disc values')
+            print(F.sigmoid(combo_disc))
 
         # If training discriminator -- fake samples are all 0.0
         disc_zeros = torch.zeros_like(encoder_disc)
         loss_enc_disc = criterion_disc(encoder_disc, disc_zeros)
-        loss = w_enc_disc * loss_enc_disc
+        loss_dec_disc = criterion_disc(decoder_disc, disc_zeros)
+        loss_combo_disc = criterion_disc(combo_disc, disc_zeros)
+        loss_disc = (loss_enc_disc + loss_dec_disc + loss_combo_disc) / 3.0
+        loss = w_enc_disc * loss_disc
 
         optim.zero_grad()
 
@@ -462,6 +500,8 @@ def train(total_iters=0):
         else:
             loss.backward()
         total_enc_disc_loss += loss_enc_disc.data.float()
+        total_dec_disc_loss += loss_dec_disc.data.float()
+        total_combo_disc_loss += loss_combo_disc.data.float()
 
         # clipping gradients helps prevent the exploding gradient problem in RNNs / LSTMs.
         if args.clip > 0:
@@ -495,16 +535,19 @@ def train(total_iters=0):
             cur_enc_loss = total_enc_loss.item() / log_interval
             cur_dec_loss = total_dec_loss.item() / log_interval
             cur_disc_enc_loss = total_enc_disc_loss.item() / (log_interval * 2.0)
+            cur_disc_dec_loss = total_dec_disc_loss.item() / (log_interval * 2.0)
+            cur_disc_combo_loss = total_combo_disc_loss.item() / (log_interval * 2.0)
             elapsed = time.time() - start_time
             print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:.2E} | ms/batch {:.3E} | \
-                  loss_enc {:.2E} | loss_dec {:.2E} | loss_ED {:.2E} | ppl {:8.2f}'.format(
+                  loss_enc {:.2E} | loss_dec {:.2E} | loss_ED {:.2E} | loss_DD {:.2E} | loss_CD {:.2E} | ppl {:8.2f}'.format(
                       epoch, i, len(train_data), lr,
-                      elapsed * 1000 / log_interval, cur_enc_loss, cur_dec_loss, cur_disc_enc_loss, math.exp(min(cur_loss, 20)),
+                      elapsed * 1000 / log_interval, cur_enc_loss, cur_dec_loss,
+                      cur_disc_enc_loss, cur_disc_dec_loss, cur_disc_combo_loss, math.exp(min(cur_loss, 20)),
                       #float(args.loss_scale) if not args.fp16 else optim.loss_scale,
                   )
             )
             total_loss = 0
-            total_enc_loss, total_dec_loss, total_enc_disc_loss = 0, 0, 0
+            total_enc_loss, total_dec_loss, total_enc_disc_loss, total_dec_disc_loss, total_combo_disc_loss = 0, 0, 0, 0, 0
             start_time = time.time()
             sys.stdout.flush()
 

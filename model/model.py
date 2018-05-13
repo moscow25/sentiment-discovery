@@ -42,7 +42,8 @@ class RNNAutoEncoderModel(nn.Module):
                 use_latent_hidden=True, transform_latent_hidden=True, latent_tanh=False,
                 use_cell_hidden=False, transform_cell_hidden=False, decoder_highway_hidden=True,
                 discriminator_encoder_hidden=True, disc_enc_nhid=111, disc_enc_layers=2, disconnect_disc_enc_grad = True,
-                discriminator_decoder_hidden=False, disc_dec_nhid=111, disc_dec_layers=2):
+                discriminator_decoder_hidden=True, disc_dec_nhid=133, disc_dec_layers=2, disconnect_disc_dec_grad = False,
+                combined_disc_nhid=144, combined_disc_layers=1):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
@@ -78,6 +79,9 @@ class RNNAutoEncoderModel(nn.Module):
         self.discriminator_decoder_hidden = discriminator_decoder_hidden
         self.disc_dec_nhid = disc_dec_nhid
         self.disc_dec_layers = disc_dec_layers
+        self.disconnect_disc_dec_grad = disconnect_disc_dec_grad
+        self.combined_disc_nhid = combined_disc_nhid
+        self.combined_disc_layers = combined_disc_layers
 
         if self.discriminator_encoder_hidden:
             print('Building discriminator from encoder hidden state (%d x %d)' % (self.disc_enc_nhid, self.disc_enc_layers))
@@ -90,15 +94,66 @@ class RNNAutoEncoderModel(nn.Module):
             disc_enc_final = nn.Linear(self.disc_enc_nhid, 1)
             if self.disc_enc_layers == 1:
                 self.disc_enc_transform = nn.Sequential(fc1_disc_enc, nn.ReLU(), disc_enc_final)
+                self.disc_enc_partial_transform = nn.Sequential(fc1_disc_enc, nn.ReLU())
             elif self.disc_enc_layers == 2:
                 self.disc_enc_transform = nn.Sequential(fc1_disc_enc, nn.ReLU(),
                     fc2_disc_enc, nn.ReLU(), disc_enc_final)
+                self.disc_enc_partial_transform = nn.Sequential(fc1_disc_enc, nn.ReLU(),
+                    fc2_disc_enc, nn.ReLU())
             elif self.disc_enc_layers == 3:
                 self.disc_enc_transform = nn.Sequential(fc1_disc_enc, nn.ReLU(),
                     fc2_disc_enc, nn.ReLU(), fc3_disc_enc, nn.ReLU(), disc_enc_final)
+                self.disc_enc_partial_transform = nn.Sequential(fc1_disc_enc, nn.ReLU(),
+                    fc2_disc_enc, nn.ReLU(), fc3_disc_enc, nn.ReLU())
             print(self.disc_enc_transform)
         else:
             self.disc_enc_transform = None
+            self.disc_enc_partial_transform = None
+
+        if self.discriminator_decoder_hidden:
+            print('Building discriminator from *decoder* hidden state (%d x %d)' % (self.disc_dec_nhid, self.disc_dec_layers))
+            assert self.disc_dec_layers >= 1 and self.disc_dec_layers <= 3, "Hardcode 1-3 layer DNN for decoder discriminator"
+            fc1_disc_dec = nn.Linear(nhid, self.disc_dec_nhid)
+            if self.disc_dec_layers >= 2:
+                fc2_disc_dec = nn.Linear(self.disc_dec_nhid, self.disc_dec_nhid)
+            if self.disc_dec_layers >= 3:
+                fc3_disc_dec = nn.Linear(self.disc_dec_nhid, self.disc_dec_nhid)
+            disc_dec_final = nn.Linear(self.disc_dec_nhid, 1)
+            if self.disc_dec_layers == 1:
+                self.disc_dec_transform = nn.Sequential(fc1_disc_dec, nn.ReLU(), disc_dec_final)
+                self.disc_dec_partial_transform = nn.Sequential(fc1_disc_dec, nn.ReLU())
+            elif self.disc_dec_layers == 2:
+                self.disc_dec_transform = nn.Sequential(fc1_disc_dec, nn.ReLU(),
+                    fc2_disc_dec, nn.ReLU(), disc_dec_final)
+                self.disc_dec_partial_transform = nn.Sequential(fc1_disc_dec, nn.ReLU(),
+                    fc2_disc_dec, nn.ReLU())
+            elif self.disc_dec_layers == 3:
+                self.disc_dec_transform = nn.Sequential(fc1_disc_dec, nn.ReLU(),
+                    fc2_disc_dec, nn.ReLU(), fc3_disc_dec, nn.ReLU(), disc_dec_final)
+                self.disc_dec_partial_transform = nn.Sequential(fc1_disc_dec, nn.ReLU(),
+                    fc2_disc_dec, nn.ReLU(), fc3_disc_dec, nn.ReLU())
+            print(self.disc_dec_transform)
+        else:
+            self.disc_dec_transform = None
+            self.disc_dec_partial_transform = None
+
+        # Perhaps too clever? But combine encoder and decoder outputs into 1-layer DNN for shared real/fake prediction
+        if self.discriminator_encoder_hidden and self.discriminator_decoder_hidden and self.combined_disc_layers > 0:
+            # If both encoder and decoder based discriminators exist, cat outputs and run 1x layer
+            print('Building *combined* discriminator from encoder & decoder hidden state. (%d x %d)', (self.combined_disc_layers, self.combined_disc_nhid))
+            assert self.combined_disc_layers >= 1 and self.combined_disc_layers <= 2, "Hardcode 1-2 layer DNN for combined discriminator"
+            fc1_disc_combo = nn.Linear(self.disc_enc_nhid + self.disc_dec_nhid, self.combined_disc_nhid)
+            if self.combined_disc_layers >=2:
+                fc2_disc_combo = nn.Linear(self.combined_disc_nhid, self.combined_disc_nhid)
+            disc_combo_final = nn.Linear(self.combined_disc_nhid, 1)
+            if self.combined_disc_layers == 1:
+                self.disc_combo_transform = nn.Sequential(fc1_disc_combo, nn.ReLU(), disc_combo_final)
+            elif self.combined_disc_layers == 2:
+                self.disc_combo_transform = nn.Sequential(fc1_disc_combo, nn.ReLU(),
+                    fc2_disc_combo, nn.ReLU(), disc_combo_final)
+            print(self.disc_combo_transform)
+        else:
+            self.disc_combo_transform = None
 
         if self.highway_hidden:
             print('Using highway (+=) -- from encoder hidden to each decoder step')
@@ -195,6 +250,10 @@ class RNNAutoEncoderModel(nn.Module):
             if self.disconnect_disc_enc_grad:
                 enc_hid = enc_hid.detach()
             encoder_hidden_disc_out = self.disc_enc_transform(enc_hid)
+
+            # Also compute partial for combined if needed
+            if self.disc_combo_transform:
+                encoder_hidden_disc_partial = self.disc_enc_partial_transform(enc_hid)
         else:
             encoder_hidden_disc_out = None
 
@@ -203,8 +262,33 @@ class RNNAutoEncoderModel(nn.Module):
             use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden)
         decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask,
             temperature=temperature, highway_hidden=self.highway_hidden, beam=beam, variable_tf=variable_tf)
+
+        # If we want to also predict real/fake from the decoder (final) hidden state, apply that here.
+        # NOTE: overall this will be harder, and we can't (easily) freeze loss w/r/t decoder
+        # But unrolled encoder should know some info like whether words were complete and made sense.
+        if self.discriminator_decoder_hidden:
+            dec_hid = decoder_hidden[0][0]
+            if self.disconnect_disc_dec_grad:
+                dec_hid = dec_hid.detach()
+            decoder_hidden_disc_out = self.disc_dec_transform(dec_hid)
+
+            # Also compute partial for combined if needed
+            if self.disc_combo_transform:
+                decoder_hidden_disc_partial = self.disc_dec_partial_transform(dec_hid)
+        else:
+            decoder_hidden_disc_out = None
+
+        # TODO: As the (likely) best model, combine final encoder and decoder based discriminator layers
+        # Why? Encoder better at some, decoder better at other discriminator tasks. Just print it.
+        if self.disc_combo_transform:
+            combo_input = torch.cat((encoder_hidden_disc_partial, decoder_hidden_disc_partial), 1)
+            combo_disc_out = self.disc_combo_transform(combo_input)
+        else:
+            combo_disc_out = None
+
+        # Reset encoer Hidden State... for the next step.
         self.encoder.set_hidden([(encoder_hidden[0][0], encoder_hidden[1][0])])
-        return encoder_output, decoder_output, encoder_hidden, encoder_hidden_disc_out, sampled_out
+        return encoder_output, decoder_output, encoder_hidden, encoder_hidden_disc_out, decoder_hidden_disc_out, combo_disc_out, sampled_out
 
     def encode_in(self, input, reset_mask=None):
         out, (hidden, cell) = self.encoder(input, reset_mask=reset_mask)
