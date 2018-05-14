@@ -379,7 +379,7 @@ class RNNAutoEncoderModel(nn.Module):
             sd['disc_dec_transform'] = {}
             sd['disc_dec_partial_transform'] = {}
         if self.disc_combo_transform:
-            sd['disc_combo_transform'] = self.disc_combo_final.state_dict(prefix=prefix, keep_vars=keep_vars)
+            sd['disc_combo_transform'] = self.disc_combo_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
         else:
             sd['disc_combo_transform'] = {}
         return sd
