@@ -381,13 +381,13 @@ def train(total_iters=0):
         output_enc, output_dec, encoder_hidden, encoder_disc, decoder_disc, combo_disc, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature, variable_tf=args.force_ctrl)
 
         # NOTE: Make sure these values are legal -- Var or return None if not specified
-        if i % 500 == 0:
-            print('Real (encoder) disc values:')
-            print(F.sigmoid(encoder_disc))
-            print('Real (decoder) disc values:')
-            print(F.sigmoid(decoder_disc))
-            print('Real (combined) disc values')
-            print(F.sigmoid(combo_disc))
+        #if i % 500 == 0:
+        #    print('Real (encoder) disc values:')
+        #    print(F.sigmoid(encoder_disc))
+        #    print('Real (decoder) disc values:')
+        #    print(F.sigmoid(decoder_disc))
+        #    print('Real (combined) disc values')
+        #    print(F.sigmoid(combo_disc))
 
         if i % 1000 == 0:
             print_len = min(args.batch_size, 3)
@@ -468,6 +468,11 @@ def train(total_iters=0):
         #print(fake_factor_vector)
         #print(torch.mean(fake_factor_vector))
         real_factor_vector = 1.0 - fake_factor_vector
+        # TODO: Can we move to CUDA earlier in sampling? Does it matter?
+        if torch.cuda.is_available():
+            real_factor_vector = real_factor_vector.cuda()
+            encoder_hidden_fake = encoder_hidden_fake.cuda()
+            fake_factor_vector = fake_factor_vector.cuda()
         encoder_hidden_fake = prev_hidden * real_factor_vector + encoder_hidden_fake * fake_factor_vector
 
 
@@ -477,13 +482,13 @@ def train(total_iters=0):
         output_enc, output_dec, encoder_hidden, encoder_disc, decoder_disc, combo_disc, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature, variable_tf=args.force_ctrl)
 
         # NOTE: Make sure these values are legal -- Var or return None if not specified
-        if i % 500 == 0:
-            print('Fake (encoder) disc values:')
-            print(F.sigmoid(encoder_disc))
-            print('Fake (decoder) disc values:')
-            print(F.sigmoid(decoder_disc))
-            print('Fake (combined) disc values')
-            print(F.sigmoid(combo_disc))
+        #if i % 500 == 0:
+        #    print('Fake (encoder) disc values:')
+        #    print(F.sigmoid(encoder_disc))
+        #    print('Fake (decoder) disc values:')
+        #    print(F.sigmoid(decoder_disc))
+        #    print('Fake (combined) disc values')
+        #    print(F.sigmoid(combo_disc))
 
         # If training discriminator -- fake samples are all 0.0
         disc_zeros = torch.zeros_like(encoder_disc)
