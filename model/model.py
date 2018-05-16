@@ -42,7 +42,7 @@ class RNNAutoEncoderModel(nn.Module):
                 use_latent_hidden=True, transform_latent_hidden=True, latent_tanh=False,
                 use_cell_hidden=False, transform_cell_hidden=False, decoder_highway_hidden=True,
                 discriminator_encoder_hidden=True, disc_enc_nhid=1024, disc_enc_layers=2, disconnect_disc_enc_grad = True,
-                discriminator_decoder_hidden=True, disc_dec_nhid=1024, disc_dec_layers=2, disconnect_disc_dec_grad = False,
+                discriminator_decoder_hidden=True, disc_dec_nhid=1024, disc_dec_layers=2, disconnect_disc_dec_grad = True,
                 combined_disc_nhid=1024, combined_disc_layers=1):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
@@ -392,8 +392,17 @@ class RNNAutoEncoderModel(nn.Module):
             self.latent_hidden_transform.load_state_dict(sd['hidden_transform'], strict)
         if self.latent_cell_transform is not None and sd['cell_transform']:
             self.latent_cell_transform.load_state_dict(sd['cell_transform'], strict)
-        if self.disc_enc_transform is not None and sd['disc_enc_transform']:
+        # Load discriminator elements -- if requeseted and exist in the loading model [keep random init if loading for older model]
+        if self.disc_enc_transform is not None and 'disc_enc_transform' in sd and sd['disc_enc_transform']:
             self.disc_enc_transform.load_state_dict(sd['disc_enc_transform'], strict)
+        if self.disc_enc_partial_transform is not None and 'disc_enc_partial_transform' in sd and sd['disc_enc_partial_transform']:
+            self.disc_enc_partial_transform.load_state_dict(sd['disc_enc_partial_transform'], strict)
+        if self.disc_dec_transform is not None and 'disc_dec_transform' in sd and sd['disc_dec_transform']:
+            self.disc_dec_transform.load_state_dict(sd['disc_dec_transform'], strict)
+        if self.disc_dec_partial_transform is not None and 'disc_dec_partial_transform' in sd and sd['disc_dec_partial_transform']:
+            self.disc_dec_partial_transform.load_state_dict(sd['disc_dec_partial_transform'], strict)
+        if self.disc_combo_transform is not None and 'disc_combo_transform' in sd and sd['disc_combo_transform']:
+            self.disc_combo_transform.load_state_dict(sd['disc_combo_transform'], strict)
 
 # Placeholder QRNN wrapper -- to support detach/reset/init RNN state
 #class myQRNN(QRNN):
