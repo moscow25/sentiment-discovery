@@ -266,10 +266,30 @@ if not args.no_weight_norm:
 # create optimizer and fp16 models
 args.save_optim = args.save_optim or args.blowup_restore
 optimizer_params = None
-if not args.freeze:
+if not args.freeze and not args.freeze_decoder:
     optimizer_params = model.parameters()
 else:
-    optimizer_params = list(model.decoder.parameters())+list(model.latent_hidden_transform.parameters())+list(model.latent_cell_transform.parameters())
+    # If freezing part of the network, sadly, we have to iterate over all possible items that could be in the network
+    optimizer_params = []
+    if model.encoder:
+        optimizer_params += list(model.encoder.parameters())
+    if model.decoder:
+        optimizer_params += list(model.decoder.parameters())
+    if model.latent_hidden_transform:
+        optimizer_params += list(model.latent_hidden_transform.parameters())
+    if model.latent_cell_transform:
+        optimizer_params += list(model.latent_cell_transform.parameters())
+    if model.disc_enc_transform:
+        optimizer_params += list(model.disc_enc_transform.parameters())
+    if model.disc_enc_partial_transform:
+        optimizer_params += list(model.disc_enc_partial_transform.parameters())
+    if model.disc_dec_transform:
+        optimizer_params += list(model.disc_dec_transform.parameters())
+    if model.disc_dec_partial_transform:
+        optimizer_params += list(model.disc_dec_partial_transform.parameters())
+    if model.disc_combo_transform:
+        optimizer_params += list(model.disc_combo_transform.parameters())
+    #optimizer_params = list(model.decoder.parameters())+list(model.latent_hidden_transform.parameters())+list(model.latent_cell_transform.parameters())
 if args.fp16:
     model = FP16_Module(model)
     optim = eval('torch.optim.'+args.optim)(model.parameters(), lr=args.lr)
