@@ -42,6 +42,8 @@ parser.add_argument('--tied', action='store_true',
                     help='tie the encoder to the decoder parameters')
 parser.add_argument('--freeze', action='store_true',
                     help='freeze the encoder weights')
+parser.add_argument('--freeze_decoder', action='store_true',
+                    help='freeze the decoder weights (only makes sense for discriminator training')
 parser.add_argument('--no_force', action='store_true',
                     help='No teacher forcing. Use temperature to sample from output distribution')
 parser.add_argument('--attention', action='store_true',
@@ -202,7 +204,7 @@ train_data, val_data, test_data = data_config.apply(args)
 ntokens = args.data_size
 #model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied)
 model = model.RNNAutoEncoderModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers,
-    dropout=args.dropout, tie_weights=args.tied, freeze=args.freeze,
+    dropout=args.dropout, tie_weights=args.tied, freeze=args.freeze, freeze_decoder=args.freeze_decoder,
     teacher_force=not args.no_force, attention=args.attention, init_transform_id=args.init_transform_id,
     use_latent_hidden=args.decoder_use_hidden, transform_latent_hidden=args.decoder_xform_hidden,
     latent_tanh=args.latent_use_tanh,

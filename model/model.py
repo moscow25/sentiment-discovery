@@ -37,7 +37,7 @@ def tie_params(module_src, module_dst):
 
 class RNNAutoEncoderModel(nn.Module):
     def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
-                tie_weights=True, freeze=False, teacher_force=True,
+                tie_weights=True, freeze=False, freeze_decoder=False, teacher_force=True,
                 attention=False, init_transform_id=False,
                 use_latent_hidden=True, transform_latent_hidden=True, latent_tanh=False,
                 use_cell_hidden=False, transform_cell_hidden=False, decoder_highway_hidden=True,
@@ -46,6 +46,7 @@ class RNNAutoEncoderModel(nn.Module):
                 combined_disc_nhid=1024, combined_disc_layers=1):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
+        self.freeze_decoder = freeze_decoder
         self.encoder = RNNModel(rnn_type=rnn_type, ntoken=ntoken, ninp=ninp, nhid=nhid,
             nlayers=nlayers, dropout=dropout)
         # Parameters from first to second.
@@ -260,8 +261,13 @@ class RNNAutoEncoderModel(nn.Module):
         emb = self.process_emb(encoder_hidden,
             use_latent_hidden=self.use_latent_hidden, transform_latent_hidden=self.transform_latent_hidden,
             use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden)
-        decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask,
-            temperature=temperature, highway_hidden=self.highway_hidden, beam=beam, variable_tf=variable_tf)
+        if self.freeze_decoder:
+            with torch.no_grad():
+                decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask,
+                    temperature=temperature, highway_hidden=self.highway_hidden, beam=beam, variable_tf=variable_tf)
+        else:
+            decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask,
+                temperature=temperature, highway_hidden=self.highway_hidden, beam=beam, variable_tf=variable_tf)
 
         # If we want to also predict real/fake from the decoder (final) hidden state, apply that here.
         # NOTE: overall this will be harder, and we can't (easily) freeze loss w/r/t decoder
