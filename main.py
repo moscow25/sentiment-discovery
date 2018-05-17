@@ -42,7 +42,7 @@ parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='report interval')
 parser.add_argument('--save', type=str,  default='lang_model.pt',
                     help='path to save the final model')
-parser.add_argument('--load', type=str,
+parser.add_argument('--load', type=str, default='',
                     help='path to a previously saved model checkpoint')
 parser.add_argument('--save_iters', type=int, default=2000, metavar='N',
                     help='save current model progress interval')
@@ -90,7 +90,7 @@ args = parser.parse_args()
 torch.backends.cudnn.enabled = False
 
 # initialize distributed process group and set device
-if args.rank > 0:
+if args.rank > 0 and torch.cuda.is_available():
     torch.cuda.set_device(args.rank % torch.cuda.device_count())
 
 if args.world_size > 1:
@@ -101,11 +101,12 @@ if args.world_size > 1:
 # Set the random seed manually for reproducibility.
 if args.seed is not -1:
     torch.manual_seed(args.seed)
-    torch.cuda.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(args.seed)
 
 if args.loss_scale != 1 and args.dynamic_loss_scale:
     raise RuntimeError("Static loss scale and dynamic loss scale cannot be used together.")
-    
+
 ###############################################################################
 # Load data
 ###############################################################################
@@ -121,7 +122,7 @@ if args.loss_scale != 1 and args.dynamic_loss_scale:
 # batch processing.
 #
 # The unsupervised dataset further splits the corpus into shards through which
-# the hidden state is persisted. The dataset also produces a hidden state 
+# the hidden state is persisted. The dataset also produces a hidden state
 # reset mask that resets the hidden state at the start of every shard. A valid
 # mask might look like
 # ┌ 1 0 0 0 0 0 ... 0 0 0 1 0 0 ... ┐
@@ -129,7 +130,7 @@ if args.loss_scale != 1 and args.dynamic_loss_scale:
 # │ 1 0 0 0 0 0 ... 0 0 1 0 0 0 ... │
 # └ 1 0 0 0 0 0 ... 1 0 0 0 0 0 ... ┘.
 # With 1 indicating to reset hidden state at that particular minibatch index
- 
+
 train_data, val_data, test_data = data_config.apply(args)
 
 ###############################################################################
@@ -137,7 +138,9 @@ train_data, val_data, test_data = data_config.apply(args)
 ###############################################################################
 
 ntokens = args.data_size
-model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied).cuda()
+model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied)
+if torch.cuda.is_available():
+    model = model.cuda()
 rnn_model = model
 
 if args.load != '':
@@ -156,7 +159,7 @@ if not args.no_weight_norm:
 if args.fp16:
     model = FP16_Module(model)
     optim = eval('torch.optim.'+args.optim)(model.parameters(), lr=args.lr)
-    optim = FP16_Optimizer(optim, 
+    optim = FP16_Optimizer(optim,
                            static_loss_scale=args.loss_scale,
                            dynamic_loss_scale=args.dynamic_loss_scale)
 else:
@@ -185,12 +188,15 @@ criterion = nn.CrossEntropyLoss()
 # Note that despite the name of the function, the subdivison of data is not
 # done along the batch dimension (i.e. dimension 1), since that was handled
 # by the data loader. The chunks are along dimension 0, corresponding
-# to the seq_len dimension in the LSTM. A Variable representing an appropriate 
+# to the seq_len dimension in the LSTM. A Variable representing an appropriate
 # shard reset mask of the same dimensions is also returned.
 
 def get_batch(data):
-    reset_mask_batch = data[1].cuda().long()
-    data = data[0].cuda().long()
+    reset_mask_batch = data[1].long()
+    data = data[0].long()
+    if torch.cuda.is_available():
+        reset_mask_batch = reset_mask_batch.cuda()
+        data = data.cuda()
     text_batch = Variable(data[:,:-1].t().contiguous(), requires_grad=False)
     target_batch = Variable(data[:,1:].t().contiguous(), requires_grad=False)
     reset_mask_batch = Variable(reset_mask_batch[:,:text_batch.size(0)].t().contiguous(), requires_grad=False)
@@ -224,15 +230,19 @@ def train(total_iters=0):
     for i, batch in enumerate(train_data):
 
         data, targets, reset_mask = get_batch(batch)
+        model.rnn.detach_hidden()
         output, hidden = model(data, reset_mask=reset_mask)
+
         loss = criterion(output.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
 
         optim.zero_grad()
 
+        print('backward pass')
+
         if args.fp16:
             optim.backward(loss)
         else:
-            loss.backward()
+            loss.backward(retain_graph=True)
         total_loss += loss.data.float()
 
 
@@ -260,7 +270,7 @@ def train(total_iters=0):
                   loss {:.2E} | ppl {:8.2f} | loss scale {:8.2f}'.format(
                       epoch, i, len(train_data), lr,
                       elapsed * 1000 / args.log_interval, cur_loss, math.exp(min(cur_loss, 20)),
-                      args.loss_scale if not args.fp16 else optim.loss_scale 
+                      args.loss_scale if not args.fp16 else optim.loss_scale
                   )
             )
             total_loss = 0
@@ -272,7 +282,8 @@ def train(total_iters=0):
             if args.rank < 1:
                 with open(os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(total_iters),)), 'wb') as f:
                     torch.save(model.state_dict(), f)
-            torch.cuda.synchronize()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
         total_iters += 1
 
     return cur_loss
@@ -305,7 +316,8 @@ try:
             with open(args.save, 'wb') as f:
                 torch.save(model.state_dict(), f)
             best_val_loss = val_loss
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
 
 except KeyboardInterrupt:
     print('-' * 89)
@@ -321,7 +333,8 @@ if not args.no_weight_norm and args.rank <= 0:
     with open(args.save, 'wb') as f:
         torch.save(model.state_dict(), f)
 
-torch.cuda.synchronize()
+if torch.cuda.is_available():
+    torch.cuda.synchronize()
 
 if test_data is not None:
     # Run on test data.

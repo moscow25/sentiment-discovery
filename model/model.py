@@ -1,6 +1,8 @@
+import math
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+import torch.utils.checkpoint as checkpoint
 
 from apex import RNN
 
@@ -30,10 +32,42 @@ class RNNModel(nn.Module):
         self.nhid = nhid
         self.nlayers = nlayers
 
-    def forward(self, input, reset_mask=None):
+    def custom(self, start, end, reset_mask=None):
+        def custom_forward(*inputs):
+            print('start: {} end: {}'.format(start, end))
+            output, hidden = self.rnn(
+                inputs[0][start:(end+1)], (inputs[1], inputs[2]), reset_mask=reset_mask
+            )
+            #print(output)
+            #print(hidden[0])
+            #print(hidden[1])
+            return output, hidden[0][0], hidden[1][0]
+        return custom_forward
+
+    def forward(self, input, chunks=4, reset_mask=None):
+        total_modules = input.shape[0]
+        chunk_size = int(math.floor(float(total_modules) / chunks))
+        start, end = 0, -1
         emb = self.drop(self.encoder(input))
         self.rnn.detach_hidden()
-        output, hidden = self.rnn(emb, reset_mask=reset_mask)
+
+        hidden = self.rnn.rnns[0].hidden
+
+        output = []
+        for j in range(chunks):
+            start = end + 1
+            end = start + chunk_size - 1
+            if j == (chunks - 1):
+                end = total_modules - 1
+            out = checkpoint.checkpoint(self.custom(start, end, reset_mask=reset_mask), emb, hidden[0], hidden[1])
+            output.append(out[0])
+            hidden = (out[1], out[2])
+        output = torch.cat(output, 0)
+        hidden = (out[1], out[2])
+
+
+        #output, h0, h1 = custom(emb, reset_mask=reset_mask) #self.rnn(emb, reset_mask=reset_mask)
+        #hidden = (h0, h1)
         output = self.drop(output)
         decoded = self.decoder(output.view(output.size(0)*output.size(1), output.size(2)))
         return decoded.view(output.size(0), output.size(1), decoded.size(1)), hidden
@@ -82,7 +116,7 @@ class RNNFeaturizer(nn.Module):
                 cell = self.get_cell_features(hidden)
                 if i > 0:
                     cell = get_valid_outs(i, seq_len, cell, last_cell)
-                last_cell = cell   
+                last_cell = cell
         return cell
 
     def get_cell_features(self, hidden):
