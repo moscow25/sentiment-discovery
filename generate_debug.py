@@ -82,6 +82,8 @@ parser.add_argument('--emotion_vector', default='',
                     help='Path to numpy file with vector to apply to hidden state (model specific)')
 parser.add_argument('--emotion_gram_matrix', default='',
                     help='Gram matrix for average emotion in a category (which you try to match?)')
+parser.add_argument('--style_weight', type=int, default=0,
+                    help='How much to weight for style transfer -- content_weight == 1.0')
 parser.add_argument('--attention', action='store_true',
                     help='')
 parser.add_argument('--beam', type=int, default=1,
@@ -456,8 +458,11 @@ xfer_model.add_module("style_loss_{}".format(0), style_loss)
 optimizer = optim.LBFGS([fit_hidden])
 
 num_steps = 20
-style_weight = 50 # 100 # 200 # 100. #200.
+style_weight = 100 # 50 # 100 # 200 # 100. #200.
+if args.style_weight:
+    style_weight = args.style_weight
 content_weight = 1.
+print('Fitting with content weight %.2f, style weight %.2f' % (content_weight, style_weight))
 if True:
     print('Optimizing..')
     run = [0]
