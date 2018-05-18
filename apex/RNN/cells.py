@@ -36,7 +36,7 @@ class mLSTMRNNCell(RNNCell):
                            self.cell(input, hidden_state, self.w_ih, self.w_hh, self.w_mih, self.w_mhh,
                            b_ih=self.b_ih, b_hh=self.b_hh)
         )
-        
+
         if self.output_size != self.hidden_size:
             self.hidden[0] = F.linear(self.hidden[0], self.w_ho)
         return tuple(self.hidden)
@@ -71,8 +71,7 @@ def mLSTMCell(input, hidden, w_ih, w_hh, w_mih, w_mhh, b_ih=None, b_hh=None):
     m = F.linear(input, w_mih) * F.linear(hidden[0], w_mhh)
     igates = F.linear(input, w_ih, b_ih) + F.linear(m, w_hh, b_hh)
 
-    ingate, forgetgate, outgate, cellgate = igates.chunk(4, 1)
-    #ingate, forgetgate, cellgate, outgate = igates.chunk(4, 1)
+    ingate, forgetgate, cellgate, outgate = igates.chunk(4, 1)
 
     ingate = F.sigmoid(ingate)
     forgetgate = F.sigmoid(forgetgate)

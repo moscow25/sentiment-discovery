@@ -150,9 +150,10 @@ data_parser.add_argument('--temperature', type=float, default=0.1,
 args = parser.parse_args()
 
 torch.backends.cudnn.enabled = False
+args.cuda = torch.cuda.is_available()
 
 # initialize distributed process group and set device
-if torch.cuda.is_available():
+if args.cuda:
     if args.rank > 0:
         torch.cuda.set_device(args.rank % torch.cuda.device_count())
 
@@ -163,10 +164,11 @@ if args.world_size > 1:
 
 # Set the random seed manually for reproducibility.
 if args.seed is not -1:
-    if torch.cuda.is_available():
+    if args.cuda:
         torch.cuda.manual_seed(args.seed)
     else:
         torch.manual_seed(args.seed)
+
 
 if args.loss_scale != 1 and args.dynamic_loss_scale:
     raise RuntimeError("Static loss scale and dynamic loss scale cannot be used together.")
@@ -210,9 +212,11 @@ model = model.RNNAutoEncoderModel(args.model, ntokens, args.emsize, args.nhid, a
     latent_tanh=args.latent_use_tanh,
     use_cell_hidden=args.decoder_use_cell, transform_cell_hidden=args.decoder_xform_cell,
     decoder_highway_hidden=args.decoder_highway_hidden)
-if torch.cuda.is_available():
+if args.cuda:
     print('Compiling model in CUDA mode [make sure]')
     model = model.cuda()
+print('* number of parameters: %d' % sum([p.nelement() for p in model.parameters()]))
+
 rnn_model = model
 #print(model._modules)
 
@@ -224,7 +228,7 @@ if args.load != '':
         torch.set_rng_state(sd['rng'])
         del sd['rng']
     if 'cuda_rng' in sd:
-        if torch.cuda.is_available():
+        if args.cuda:
             torch.cuda.set_rng_state(sd['cuda_rng'])
         del sd['cuda_rng']
 
@@ -338,7 +342,7 @@ criterion_disc = nn.BCEWithLogitsLoss()
 def get_batch(data):
     reset_mask_batch = data[1].long()
     data = data[0].long()
-    if torch.cuda.is_available():
+    if args.cuda:
         reset_mask_batch = reset_mask_batch.cuda()
         data = data.cuda()
     text_batch = Variable(data[:,:-1].t().contiguous(), requires_grad=False)
@@ -491,7 +495,7 @@ def train(total_iters=0):
         #print(torch.mean(fake_factor_vector))
         real_factor_vector = 1.0 - fake_factor_vector
         # TODO: Can we move to CUDA earlier in sampling? Does it matter?
-        if torch.cuda.is_available():
+        if args.cuda:
             real_factor_vector = real_factor_vector.cuda()
             encoder_hidden_fake = encoder_hidden_fake.cuda()
             fake_factor_vector = fake_factor_vector.cuda()
@@ -586,7 +590,7 @@ def train(total_iters=0):
                 with open(fname, 'wb') as f:
                     sd = rnn_model.state_dict()
                     sd['rng'] = torch.get_rng_state()
-                    if torch.cuda.is_available():
+                    if args.cuda:
                         sd['cuda_rng'] = torch.cuda.get_rng_state()
                     torch.save(sd, f)
                 if args.save_optim:
@@ -594,7 +598,9 @@ def train(total_iters=0):
                     with open(optimname, 'wb') as f:
                         sd = optim.state_dict()
                         torch.save(sd, f)
-            if torch.cuda.is_available():
+                with open(os.path.join(os.path.splitext(args.save)[0], 'e%s.pt'%(str(total_iters),)), 'wb') as f:
+                    torch.save(model.state_dict(), f)
+            if args.cuda:
                 torch.cuda.synchronize()
         total_iters += 1
 
@@ -631,11 +637,11 @@ try:
             with open(args.save, 'wb') as f:
                 sd = rnn_model.state_dict()
                 sd['rng'] = torch.get_rng_state()
-                if torch.cuda.is_available():
+                if args.cuda:
                     sd['cuda_rng'] = torch.cuda.get_rng_state()
                 torch.save(sd, f)
             best_val_loss = val_loss
-        if torch.cuda.is_available():
+        if args.cuda:
             torch.cuda.synchronize()
 
 except KeyboardInterrupt:
@@ -651,8 +657,7 @@ if not args.no_weight_norm and args.rank <= 0:
     remove_weight_norm(rnn_model)
     with open(args.save, 'wb') as f:
         torch.save(rnn_model.state_dict(), f)
-
-if torch.cuda.is_available():
+if args.cuda:
     torch.cuda.synchronize()
 
 if test_data is not None:
