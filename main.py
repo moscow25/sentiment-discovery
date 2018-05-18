@@ -485,7 +485,7 @@ def train(total_iters=0):
         fake_factor_sampler = D.normal.Normal(fake_factor_mean, fake_factor_stdev)
         fake_factor_vector = fake_factor_sampler.sample()
         # Set a floor on minimum noise
-        fake_factor_vector = torch.clamp(fake_factor_vector, 0.05, 1.0)
+        fake_factor_vector = torch.clamp(fake_factor_vector, min(0.1, args.hidden_noise_factor / 10.0), 1.0)
         #print("fake factor vector for %.3f mean and %.3f stdev. " % (fake_factor, implied_fake_stdev))
         #print(fake_factor_vector)
         #print(torch.mean(fake_factor_vector))
