@@ -62,6 +62,8 @@ parser.add_argument('--rank', type=int, default=-1,
                     help='distributed worker rank. Typically set automatically from multiproc.py')
 parser.add_argument('--optim', default='SGD',
                     help='One of SGD or Adam')
+parser.add_argument('--checkpoint_rnn', action='store_true',
+                    help='Use checkpointing (sqrt(len)) to compute RNN with less memory -- allows to increase batch size.')
 
 # Add dataset args to argparser and set some defaults
 data_config, data_parser = configure_data(parser)
@@ -227,22 +229,26 @@ def train(total_iters=0):
     ntokens = args.data_size
     hidden = init_hidden(args.batch_size)
     curr_loss = 0.
+    optim.zero_grad()
     for i, batch in enumerate(train_data):
-
         data, targets, reset_mask = get_batch(batch)
         model.rnn.detach_hidden()
-        output, hidden = model(data, reset_mask=reset_mask)
 
+        # Chunks for checkpointing
+        if args.checkpoint_rnn:
+            chunks = int(math.sqrt(math.floor(args.seq_length)))
+            if i == 0:
+                print('Checkpointing RNN with %d chunks -- sqrt(len %d)' % (chunks, args.seq_length))
+        else:
+            chunks = 0
+
+        output, hidden = model(data, chunks=chunks, reset_mask=reset_mask)
         loss = criterion(output.view(-1, ntokens).contiguous().float(), targets.view(-1).contiguous())
-
-        optim.zero_grad()
-
-        print('backward pass')
 
         if args.fp16:
             optim.backward(loss)
         else:
-            loss.backward(retain_graph=True)
+            loss.backward()
         total_loss += loss.data.float()
 
 
@@ -253,6 +259,9 @@ def train(total_iters=0):
             else:
                 optim.clip_fp32_grads(clip=args.clip)
         optim.step()
+
+        # Reset grads before the next step.
+        optim.zero_grad()
 
         # step learning rate and log training progress
         lr = LR.get_lr()[0]
