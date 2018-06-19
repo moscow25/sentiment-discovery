@@ -41,9 +41,11 @@ class RNNAutoEncoderModel(nn.Module):
                 attention=False, init_transform_id=False,
                 use_latent_hidden=True, transform_latent_hidden=True, latent_tanh=False,
                 use_cell_hidden=False, transform_cell_hidden=False, decoder_highway_hidden=True,
-                discriminator_encoder_hidden=True, disc_enc_nhid=1024, disc_enc_layers=2, disconnect_disc_enc_grad = True,
-                discriminator_decoder_hidden=True, disc_dec_nhid=1024, disc_dec_layers=2, disconnect_disc_dec_grad = True,
-                combined_disc_nhid=1024, combined_disc_layers=1):
+                discriminator_encoder_hidden=True, disc_enc_nhid=144, disc_enc_layers=2, disconnect_disc_enc_grad = True,
+                discriminator_decoder_hidden=True, disc_dec_nhid=155, disc_dec_layers=2, disconnect_disc_dec_grad = True,
+                combined_disc_nhid=211, combined_disc_layers=1, disc_collect_hiddens=True,
+                disc_hidden_ave_pos_factor=1.0, disc_hidden_unroll=True, disc_hidden_reduce_dim_size=128,
+                disc_hidden_cnn_layers=2, disc_hidden_cnn_nfilter=64, disc_hidden_cnn_filter_size=3, disc_hidden_cnn_max_pool=True):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.freeze_decoder = freeze_decoder
@@ -83,6 +85,19 @@ class RNNAutoEncoderModel(nn.Module):
         self.disconnect_disc_dec_grad = disconnect_disc_dec_grad
         self.combined_disc_nhid = combined_disc_nhid
         self.combined_disc_layers = combined_disc_layers
+        # Alternatively for decoder discriminator, we can collect all outputs (not just last) and
+        # A. Average the states
+        # B. Weighted average to encode position
+        # C. Reduce dimension and cat them all
+        # D. Reduce dimension and perform CNN with a maxpool
+        self.disc_collect_hiddens = disc_collect_hiddens
+        self.disc_hidden_ave_pos_factor = disc_hidden_ave_pos_factor
+        self.disc_hidden_unroll = disc_hidden_unroll
+        self.disc_hidden_reduce_dim_size = disc_hidden_reduce_dim_size
+        self.disc_hidden_cnn_layers = disc_hidden_cnn_layers
+        self.disc_hidden_cnn_nfilter = disc_hidden_cnn_nfilter
+        self.disc_hidden_cnn_filter_size = disc_hidden_cnn_filter_size
+        self.disc_hidden_cnn_max_pool = disc_hidden_cnn_max_pool
 
         if self.discriminator_encoder_hidden:
             print('Building discriminator from encoder hidden state (%d x %d)' % (self.disc_enc_nhid, self.disc_enc_layers))
@@ -111,10 +126,38 @@ class RNNAutoEncoderModel(nn.Module):
             self.disc_enc_transform = None
             self.disc_enc_partial_transform = None
 
+        # Extra transformations for "collect all hiddens" from decoder and combine them somehow
+        if self.disc_collect_hiddens and self.disc_hidden_reduce_dim_size:
+           self.decoder_hiddens_disc_transform = nn.Linear(nhid, self.disc_hidden_reduce_dim_size)
+        else:
+            self.decoder_hiddens_disc_transform = None
+
+        # CNN network, upon request
+        # Makes sense to run CNN over the sequence, and take max pool -- look or discrepancies in character outputs?
+        self.conv_layers = []
+        if True:
+            for layer_id in range(self.disc_hidden_cnn_layers):
+                in_channels = self.disc_hidden_reduce_dim_size if layer_id == 0 else self.disc_hidden_cnn_nfilter
+                out_channels = self.disc_hidden_cnn_nfilter
+                conv = nn.Conv1d(in_channels=in_channels,
+                                out_channels=out_channels,
+                                kernel_size=self.disc_hidden_cnn_filter_size,
+                                padding=int(self.disc_hidden_cnn_filter_size/2))
+                self.conv_layers.append(conv)
+            self.conv_layers = nn.ModuleList(self.conv_layers)
+            # We apply the discriminator fully connected network on top of this output -- just num_channels (with a maxpool)
+            # TODO: Allow channel blowup factor, if multiple CNN layers (64, 128, etc)
+            # TODO: Allow more different CNN filter widths, if not a deep network
+            self.cnn_out_channels = self.disc_hidden_cnn_nfilter
+            print(self.conv_layers)
+        else:
+            self.cnn_out_channels = 0
+
         if self.discriminator_decoder_hidden:
             print('Building discriminator from *decoder* hidden state (%d x %d)' % (self.disc_dec_nhid, self.disc_dec_layers))
             assert self.disc_dec_layers >= 1 and self.disc_dec_layers <= 3, "Hardcode 1-3 layer DNN for decoder discriminator"
-            fc1_disc_dec = nn.Linear(nhid, self.disc_dec_nhid)
+            hid_input = self.cnn_out_channels if self.cnn_out_channels else nhid
+            fc1_disc_dec = nn.Linear(hid_input, self.disc_dec_nhid)
             if self.disc_dec_layers >= 2:
                 fc2_disc_dec = nn.Linear(self.disc_dec_nhid, self.disc_dec_nhid)
             if self.disc_dec_layers >= 3:
@@ -263,17 +306,87 @@ class RNNAutoEncoderModel(nn.Module):
             use_cell_hidden=self.use_cell_hidden, transform_cell_hidden=self.transform_cell_hidden)
         if self.freeze_decoder:
             with torch.no_grad():
-                decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask,
-                    temperature=temperature, highway_hidden=self.highway_hidden, beam=beam, variable_tf=variable_tf)
+                decoder_output, decoder_hidden, sampled_out, all_hiddens = self.decode_out(input, emb, reset_mask,
+                    temperature=temperature, highway_hidden=self.highway_hidden, beam=beam, variable_tf=variable_tf,
+                    collect_hiddens=self.disc_collect_hiddens)
         else:
-            decoder_output, decoder_hidden, sampled_out = self.decode_out(input, emb, reset_mask,
-                temperature=temperature, highway_hidden=self.highway_hidden, beam=beam, variable_tf=variable_tf)
+            decoder_output, decoder_hidden, sampled_out, all_hiddens = self.decode_out(input, emb, reset_mask,
+                temperature=temperature, highway_hidden=self.highway_hidden, beam=beam, variable_tf=variable_tf,
+                collect_hiddens=self.disc_collect_hiddens)
+
+        # If we collect all decoder hidden states... what to do with it?
+        # A. Last
+        # B. Sum them all
+        # C. Weighted sum -- encodes order
+        # D. Cat the whole thing -- very long [might be good to reduce the dimension first in each step]
+        if self.disc_collect_hiddens:
+            # TODO: If we cat all hidden states... good to apply a single dim-reduction to all steps first.
+            average_hiddens = torch.stack(all_hiddens).squeeze()
+            # TODO: Apply position-encoding mask here [0.9^len, etc]
+            seq_len = input.size(0)
+            average_hiddens = torch.sum(average_hiddens, dim=0) / seq_len
+
+        # Alternatively, don't sum/average the hidden states. Compress them and then cat to large input.
+        # TODO: Perhaps we should CNN/RNN the small states? Would make more sense. But can a simple DNN find it? If information in the decoder
+        if self.disc_collect_hiddens and self.decoder_hiddens_disc_transform:
+            compressed_hiddens = [self.decoder_hiddens_disc_transform(h) for h in all_hiddens]
+            # Now we just cat these results.
+            # TODO: Keep em, and run a CNN/RNN over the results? CNN with max pool makes the most sense IMO
+            #print(compressed_hiddens)
+            #cat_hiddens = torch.stack(compressed_hiddens).squeeze()
+            #print(cat_hiddens)
+
+        # CNN over the (reduced size) decoder hidden state embeddings
+        if self.cnn_out_channels:
+            tmp_conv_maps = []
+            layer_in = torch.stack(compressed_hiddens).squeeze()
+            #print(layer_in)
+            # Set batch as the first dimension
+            layer_in = torch.transpose(layer_in, 0, 1)
+
+            # Transpose dimensions, for 1D convolution
+            layer_in = torch.transpose(layer_in, 1, 2)
+            for layer_idx in range(self.disc_hidden_cnn_layers):
+                #print('CNN layer %d' % layer_idx)
+                if layer_idx > 0:
+                    layer_in = enc_
+                    # Zero out lower layer outputs, unless we connect all to output
+                    #if True:
+                    #    tmp_conv_maps = []
+                enc_ = self.conv_layers[layer_idx](layer_in)
+                enc_ = F.relu(enc_)
+                tmp_conv_maps.append(enc_)
+
+            # Now do a max pool
+            #final_layer[i].append(F.max_pool1d(cmap, cmap.size(2)).squeeze(2))
+            #print(tmp_conv_maps[-1])
+            cnn_output = F.max_pool1d(tmp_conv_maps[-1], tmp_conv_maps[-1].size(2)).squeeze(2)
+        else:
+            # If we cat results -- kind of crazy
+            cat_hiddens = torch.cat(compressed_hiddens, dim=0).squeeze()
+            print(cat_hiddens)
+
 
         # If we want to also predict real/fake from the decoder (final) hidden state, apply that here.
         # NOTE: overall this will be harder, and we can't (easily) freeze loss w/r/t decoder
         # But unrolled encoder should know some info like whether words were complete and made sense.
         if self.discriminator_decoder_hidden:
-            dec_hid = decoder_hidden[0][0]
+            #dec_hid = decoder_hidden[0][0]
+            # If asked to collect all hiddens, use that average as input to the network -- rather than just last state.
+            if self.disc_collect_hiddens:
+                if self.decoder_hiddens_disc_transform:
+                    if self.cnn_out_channels:
+                        #print('using cnn channels')
+                        dec_hid = cnn_output
+                    else:
+                        #print('using cat channels')
+                        dec_hid = cat_hiddens
+                else:
+                    #print('using average hiddens')
+                    dec_hid = average_hiddens
+            else:
+                dec_hid = decoder_hidden[0][0]
+
             if self.disconnect_disc_dec_grad:
                 dec_hid = dec_hid.detach()
             decoder_hidden_disc_out = self.disc_dec_transform(dec_hid)
@@ -300,15 +413,15 @@ class RNNAutoEncoderModel(nn.Module):
         out, (hidden, cell) = self.encoder(input, reset_mask=reset_mask)
         return out, (hidden, cell)
 
-    def decode_out(self, input, hidden_output, reset_mask=None, temperature=0, highway_hidden=False, beam=None, variable_tf=0.):
+    def decode_out(self, input, hidden_output, reset_mask=None, temperature=0, highway_hidden=False, beam=None, variable_tf=0., collect_hiddens=False):
         # print(hidden_output)
         # print(hidden_output[0].size())
         self.decoder.set_hidden(hidden_output)
         # NOTE: change here to remove teacher forcing
         # TODO: pass flags to use internal state (no teacher forcing)
-        out, (hidden, cell), sampled_out = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1],
-            temperature=temperature, highway_hidden=highway_hidden, beam=beam, variable_tf=variable_tf)
-        return out, (hidden, cell), sampled_out
+        out, (hidden, cell), sampled_out, all_hiddens = self.decoder(input, detach=False, reset_mask=reset_mask, context=hidden_output[0][1],
+            temperature=temperature, highway_hidden=highway_hidden, beam=beam, variable_tf=variable_tf, collect_hiddens=collect_hiddens)
+        return out, (hidden, cell), sampled_out, all_hiddens
 
     # placeholder
     def process_emb(self, emb, use_latent_hidden=True, transform_latent_hidden=True, use_cell_hidden=True, transform_cell_hidden=True):
@@ -493,7 +606,7 @@ class RNNDecoder(nn.Module):
 
         self.teacher_force = teacher_force
 
-    def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0, highway_hidden=False, beam=None, variable_tf=0.):
+    def forward(self, input, reset_mask=None, detach=True, context=None, temperature=0, highway_hidden=False, beam=None, variable_tf=0., collect_hiddens=False):
         """reset_mask and beam currently do not work together"""
         # TODO: init beam
         batch_size = input.size(1)
@@ -520,6 +633,10 @@ class RNNDecoder(nn.Module):
         if highway_hidden:
             first_hidden = [self.rnn.rnns[0].hidden[0].clone(), self.rnn.rnns[0].hidden[1].clone()]
 
+        # Optionally, collect all hidden states (each step) to pass back for discriminator
+        # NOTE: We can get also this directly via "collectHidden" as well -- but then have to change other logic.
+        all_hiddens = []
+
         for i in range(seq_len):
             # Use the next (true) character if teacher forcing
             # Flip variable control coin here (since it's per-char) [and forced_control over-rides self.teacher_force]
@@ -542,6 +659,11 @@ class RNNDecoder(nn.Module):
 
             cell = hidden[0]
             hidden = hidden[1]
+
+            # Add to list of hiddens to return at the end.
+            if collect_hiddens:
+                all_hiddens.append(hidden.clone())
+
             decoder_in = hidden
             #decoder_in = decoder_in.view(-1, self.nhid).contiguous()
             if self.attention:
@@ -561,7 +683,7 @@ class RNNDecoder(nn.Module):
         outs = torch.cat(outs)
 #        outs = torch.stack(outs)
 #        outs.register_hook(lambda x:print('hooked'))
-        return outs, (cell, hidden), out_txt
+        return outs, (cell, hidden), out_txt, all_hiddens
 
     def state_dict(self, destination=None, prefix='', keep_vars=False):
         sd = destination if destination is not None else {}
