@@ -109,13 +109,41 @@ parser.add_argument('--load_optim', type=str, default='',
 parser.add_argument('--blowup_restore', action='store_true',
                     help='employ our blowup restoring heuristic to reload old checkpoints on blow up')
 
-# Encoder/decoder loss ctrl
+# Encoder/decoder/discriminator loss ctrl
 parser.add_argument('--decoder_weight', type=float, default=.6,
                     help='decoder/encoder loss weighting. encoder_weight=1-decoder_weight. Default: .7')
 parser.add_argument('--encoder_disc_weight', type=float, default=0.1,
-                    help='discriminator weight (from encoder hidden state directly)')
+                    help='discriminator weight (from all discriminators, if any)')
 parser.add_argument('--hidden_noise_factor', type=float, default=0.2,
                     help='how much noise to add to real hidden states (for discriminator)')
+
+# Discriminator parameters -- so many
+parser.add_argument('--discriminator_encoder_hidden', action='store_true')
+parser.add_argument('--disc_enc_nhid', type=int, default=1024)
+parser.add_argument('--disc_enc_layers', type=int, default=2)
+parser.add_argument('--disconnect_disc_enc_grad', action='store_true')
+parser.add_argument('--discriminator_decoder_hidden', action='store_true')
+parser.add_argument('--disc_dec_nhid', type=int, default=1024)
+parser.add_argument('--disc_dec_layers', type=int, default=2)
+parser.add_argument('--disconnect_disc_dec_grad', action='store_true')
+parser.add_argument('--combined_disc_nhid', type=int, default=1024)
+parser.add_argument('--combined_disc_layers', type=int, default=1)
+parser.add_argument('--disc_collect_hiddens', action='store_true')
+parser.add_argument('--disc_hidden_ave_pos_factor', type=float, default=1.0)
+parser.add_argument('--disc_hidden_unroll', action='store_true')
+parser.add_argument('--disc_hidden_reduce_dim_size', type=int, default=256)
+parser.add_argument('--disc_hidden_cnn_layers', type=int, default=2)
+parser.add_argument('--disc_hidden_cnn_nfilter', type=int, default=128)
+parser.add_argument('--disc_hidden_cnn_filter_size', type=int, default=3)
+parser.add_argument('--disc_hidden_cnn_max_pool', action='store_true')
+
+#                discriminator_encoder_hidden=True, disc_enc_nhid=1024, disc_enc_layers=2, disconnect_disc_enc_grad = True,
+#                discriminator_decoder_hidden=True, disc_dec_nhid=1024, disc_dec_layers=2, disconnect_disc_dec_grad = True,
+#                combined_disc_nhid=1024, combined_disc_layers=1, disc_collect_hiddens=True,
+#                disc_hidden_ave_pos_factor=1.0, disc_hidden_unroll=True, disc_hidden_reduce_dim_size=256,
+#                disc_hidden_cnn_layers=2, disc_hidden_cnn_nfilter=128, disc_hidden_cnn_filter_size=3, disc_hidden_cnn_max_pool=True
+
+
 
 # Boris LARC optimizer
 parser.add_argument('--LARC', action='store_true',
@@ -209,9 +237,18 @@ model = model.RNNAutoEncoderModel(args.model, ntokens, args.emsize, args.nhid, a
     dropout=args.dropout, tie_weights=args.tied, freeze=args.freeze, freeze_decoder=args.freeze_decoder,
     teacher_force=not args.no_force, attention=args.attention, init_transform_id=args.init_transform_id,
     use_latent_hidden=args.decoder_use_hidden, transform_latent_hidden=args.decoder_xform_hidden,
-    latent_tanh=args.latent_use_tanh,
-    use_cell_hidden=args.decoder_use_cell, transform_cell_hidden=args.decoder_xform_cell,
-    decoder_highway_hidden=args.decoder_highway_hidden)
+    latent_tanh=args.latent_use_tanh, use_cell_hidden=args.decoder_use_cell, transform_cell_hidden=args.decoder_xform_cell,
+    decoder_highway_hidden=args.decoder_highway_hidden,
+    discriminator_encoder_hidden=args.discriminator_encoder_hidden, disc_enc_nhid=args.disc_enc_nhid,
+    disc_enc_layers=args.disc_enc_layers, disconnect_disc_enc_grad=args.disconnect_disc_enc_grad,
+    discriminator_decoder_hidden=args.discriminator_decoder_hidden, disc_dec_nhid=args.disc_dec_nhid,
+    disc_dec_layers=args.disc_dec_layers, disconnect_disc_dec_grad=args.disconnect_disc_dec_grad,
+    combined_disc_nhid=args.combined_disc_nhid, combined_disc_layers=args.combined_disc_layers,
+    disc_collect_hiddens=args.disc_collect_hiddens, disc_hidden_ave_pos_factor=args.disc_hidden_ave_pos_factor,
+    disc_hidden_unroll=args.disc_hidden_unroll, disc_hidden_reduce_dim_size=args.disc_hidden_reduce_dim_size,
+    disc_hidden_cnn_layers=args.disc_hidden_cnn_layers, disc_hidden_cnn_nfilter=args.disc_hidden_cnn_nfilter,
+    disc_hidden_cnn_filter_size=args.disc_hidden_cnn_filter_size, disc_hidden_cnn_max_pool=args.disc_hidden_cnn_max_pool
+    )
 if args.cuda:
     print('Compiling model in CUDA mode [make sure]')
     model = model.cuda()

@@ -41,11 +41,11 @@ class RNNAutoEncoderModel(nn.Module):
                 attention=False, init_transform_id=False,
                 use_latent_hidden=True, transform_latent_hidden=True, latent_tanh=False,
                 use_cell_hidden=False, transform_cell_hidden=False, decoder_highway_hidden=True,
-                discriminator_encoder_hidden=True, disc_enc_nhid=144, disc_enc_layers=2, disconnect_disc_enc_grad = True,
-                discriminator_decoder_hidden=True, disc_dec_nhid=155, disc_dec_layers=2, disconnect_disc_dec_grad = True,
-                combined_disc_nhid=211, combined_disc_layers=1, disc_collect_hiddens=True,
-                disc_hidden_ave_pos_factor=1.0, disc_hidden_unroll=True, disc_hidden_reduce_dim_size=128,
-                disc_hidden_cnn_layers=2, disc_hidden_cnn_nfilter=64, disc_hidden_cnn_filter_size=3, disc_hidden_cnn_max_pool=True):
+                discriminator_encoder_hidden=True, disc_enc_nhid=1024, disc_enc_layers=2, disconnect_disc_enc_grad=True,
+                discriminator_decoder_hidden=True, disc_dec_nhid=1024, disc_dec_layers=2, disconnect_disc_dec_grad=True,
+                combined_disc_nhid=1024, combined_disc_layers=1, disc_collect_hiddens=True,
+                disc_hidden_ave_pos_factor=1.0, disc_hidden_unroll=True, disc_hidden_reduce_dim_size=256,
+                disc_hidden_cnn_layers=2, disc_hidden_cnn_nfilter=128, disc_hidden_cnn_filter_size=3, disc_hidden_cnn_max_pool=True):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.freeze_decoder = freeze_decoder
@@ -128,7 +128,7 @@ class RNNAutoEncoderModel(nn.Module):
 
         # Extra transformations for "collect all hiddens" from decoder and combine them somehow
         if self.disc_collect_hiddens and self.disc_hidden_reduce_dim_size:
-           self.decoder_hiddens_disc_transform = nn.Linear(nhid, self.disc_hidden_reduce_dim_size)
+            self.decoder_hiddens_disc_transform = nn.Linear(nhid, self.disc_hidden_reduce_dim_size)
         else:
             self.decoder_hiddens_disc_transform = None
 
@@ -151,6 +151,7 @@ class RNNAutoEncoderModel(nn.Module):
             self.cnn_out_channels = self.disc_hidden_cnn_nfilter
             print(self.conv_layers)
         else:
+            self.conv_layers = None
             self.cnn_out_channels = 0
 
         if self.discriminator_decoder_hidden:
@@ -485,6 +486,7 @@ class RNNAutoEncoderModel(nn.Module):
             sd['cell_transform'] = self.latent_cell_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
         else:
             sd['cell_transform'] = {}
+        # Discriminator transformations
         if self.discriminator_encoder_hidden:
             sd['disc_enc_transform'] = self.disc_enc_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
             sd['disc_enc_partial_transform'] = self.disc_enc_partial_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
@@ -501,6 +503,16 @@ class RNNAutoEncoderModel(nn.Module):
             sd['disc_combo_transform'] = self.disc_combo_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
         else:
             sd['disc_combo_transform'] = {}
+        # Collect hiddens (aggregate hidden by position, not just last) in discriminator if used
+        if self.decoder_hiddens_disc_transform:
+            sd['decoder_hiddens_disc_transform'] = self.decoder_hiddens_disc_transform.state_dict(prefix=prefix, keep_vars=keep_vars)
+        else:
+            sd['decoder_hiddens_disc_transform'] = {}
+        # CNN in discriminator if used
+        if self.conv_layers:
+            sd['conv_layers'] = self.conv_layers.state_dict(prefix=prefix, keep_vars=keep_vars)
+        else:
+            sd['conv_layers'] = {}
         return sd
 
     def load_state_dict(self, sd, strict=True):
@@ -522,6 +534,11 @@ class RNNAutoEncoderModel(nn.Module):
             self.disc_dec_partial_transform.load_state_dict(sd['disc_dec_partial_transform'], strict)
         if self.disc_combo_transform is not None and 'disc_combo_transform' in sd and sd['disc_combo_transform']:
             self.disc_combo_transform.load_state_dict(sd['disc_combo_transform'], strict)
+        # Optional discriminator features -- if we collect hiddens or use a CNN
+        if self.decoder_hiddens_disc_transform is not None and 'decoder_hiddens_disc_transform' in sd and sd['decoder_hiddens_disc_transform']:
+            self.decoder_hiddens_disc_transform.load_state_dict(sd['decoder_hiddens_disc_transform'], strict)
+        if self.conv_layers is not None and 'conv_layers' in sd and sd['conv_layers']:
+            self.conv_layers.load_state_dict(sd['conv_layers'], strict)
 
 # Placeholder QRNN wrapper -- to support detach/reset/init RNN state
 #class myQRNN(QRNN):
