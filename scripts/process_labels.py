@@ -3,17 +3,26 @@ import pandas as pd
 import csv, os, time, re
 
 #column_name = 'best_emotion'
-column_name = 'what_is_the_authors_sentiment_feeling_throughout_the_post'
+#column_name = 'what_is_the_authors_sentiment_feeling_throughout_the_post'
 #column_name = 'what_emotions_is_the_author_feeling'
 #column_name = 'which_of_the_joysadness_emotions_is_the_author_feeling'
+column_name = 'user_emotions'
 column_value_name = column_name + ':confidence'
-watson_value_name = 'label'
+#text_column_name = 'text'
+text_column_name = 'title'
+#watson_value_name = 'label'
+watson_value_name = 'sentiment'
 
 # if we care about opposite categories?
 opposite_map = {'1':'3', '2':'2', '3':'1',
         'joy':'sadness', 'sadness':'joy', 'trust':'disgust', 'disgust':'trust',
         'anger': 'fear', 'fear':'anger', 'surprise':'anticipation', 'anticipation':'surprise',
         'no_emotion':'no_emotion', 'no_emotionneutral':'no_emotionneutral', }
+
+#category_name = 'CFWatson'
+#category_name = 'CFSemEvalWatson'
+category_name = 'CFNVidiaRandomWatson'
+
 # Facebook
 #opposite_map = {
 #        'no_emotion':'no_emotion',
@@ -32,6 +41,8 @@ def cleanup_text(t):
         # Other rewrites
         t_re = re.sub(r'&amp;', '&', t_re)
         t_re = re.sub(r'&#039;', "'", t_re)
+        t_re = re.sub(r'&gt;', '>', t_re)
+        t_re = re.sub(r'&lt;', '<', t_re)
         # Second attempt at unreadable characters
         t_re = "".join(x for x in t_re if (x.isspace() or 31 < ord(x) < 127))
         if t != t_re:
@@ -85,14 +96,14 @@ def get_category_labels(category, category_column, label_column, label_threshold
 def get_category_text_label_column(csv_path, use_watson = True):
         c = pd.read_csv(csv_path)
         if use_watson:
-                return c[column_name].values.tolist(), c['text'].values.tolist(), c[column_value_name].values.tolist(), c[watson_value_name].values.tolist()
+                return c[column_name].values.tolist(), c[text_column_name].values.tolist(), c[column_value_name].values.tolist(), c[watson_value_name].values.tolist()
         else:
-                return c[column_name].values.tolist(), c['text'].values.tolist(), c[column_value_name].values.tolist()
+                return c[column_name].values.tolist(), c[text_column_name].values.tolist(), c[column_value_name].values.tolist()
 
 # 'CF' prefix for CrowdFlower
 # 'FB' prefix for Facebook
 def write_csv(basepath, category, text, lab, watson = [],
-        save_neutrals=False, vs_all=False, test_set=0.10, val_set=0.10, cat_prefix='CFWatson'):
+        save_neutrals=False, vs_all=False, test_set=0.10, val_set=0.10, cat_prefix=category_name):
         if vs_all:
                 vs_all_string = '_vs_all'
         else:
@@ -173,12 +184,14 @@ def write_csv(basepath, category, text, lab, watson = [],
                                                 c.writerow(row)
 
 #input_filename = 'crowdflower.plutchik.csv'
-input_filename = 'a1204167-single-label-sentiment.csv'
+#input_filename = 'a1204167-single-label-sentiment.csv'
 #input_filename = 'a1204979-first-cut-aggregated.csv'
 #input_filename = 'a1207640-second-cut-aggregated.csv'
 #input_filename = 'a1204979-first-second-cut-aggregated.csv'
 #input_filename = 'a1213744-first-cut-FB-aggregated.csv'
 #input_filename = 'a1207640-2500-plutchik.csv'
+#input_filename = 'a1283272-Plutchik-binary-SemEval-6000.csv'
+input_filename = 'a1282896-Plutchik-binary-NVdia-Logan-4000.csv'
 
 cats, text, lab, watson = get_category_text_label_column(input_filename)
 #cats = [item.lower() for item in cats]
