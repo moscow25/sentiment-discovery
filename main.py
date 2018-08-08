@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import math
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -137,12 +138,9 @@ parser.add_argument('--disc_hidden_cnn_nfilter', type=int, default=128)
 parser.add_argument('--disc_hidden_cnn_filter_size', type=int, default=3)
 parser.add_argument('--disc_hidden_cnn_max_pool', action='store_true')
 
-#                discriminator_encoder_hidden=True, disc_enc_nhid=1024, disc_enc_layers=2, disconnect_disc_enc_grad = True,
-#                discriminator_decoder_hidden=True, disc_dec_nhid=1024, disc_dec_layers=2, disconnect_disc_dec_grad = True,
-#                combined_disc_nhid=1024, combined_disc_layers=1, disc_collect_hiddens=True,
-#                disc_hidden_ave_pos_factor=1.0, disc_hidden_unroll=True, disc_hidden_reduce_dim_size=256,
-#                disc_hidden_cnn_layers=2, disc_hidden_cnn_nfilter=128, disc_hidden_cnn_filter_size=3, disc_hidden_cnn_max_pool=True
-
+# HACK: Save vectors -- encodings for sentences -- so we can try to study valid states, offline
+parser.add_argument('--save_hidden_interval', type=int, default=0,
+                    help='Set > 0 to save hidden states to disk every X steps [for offline analysis]')
 
 
 # Boris LARC optimizer
@@ -435,6 +433,10 @@ def train(total_iters=0):
     else:
         print('running *without* args.blowup_restore -- ur in danger if model blows up and keeps running.')
 
+    # Hidden state saving... dump to disk
+    if args.save_hidden_interval:
+        encoder_hidden_aggregator = np.empty((args.save_hidden_interval, args.batch_size, args.nhid), dtype='float32')
+
     for i, batch in enumerate(train_data):
 
         data, targets, reset_mask = get_batch(batch)
@@ -442,6 +444,17 @@ def train(total_iters=0):
         #rnn_model.decoder.teacher_force = should_teacher_force()
         model.reset_hidden_state = False
         output_enc, output_dec, encoder_hidden, encoder_disc, decoder_disc, combo_disc, sampled_out = model(data, reset_mask=reset_mask, temperature=args.temperature, variable_tf=args.force_ctrl)
+
+
+        # Save encoder hidden state -- for dumping later
+        if args.save_hidden_interval > 0:
+            encoder_hidden_aggregator[i%args.save_hidden_interval] = encoder_hidden[0][0].detach().numpy()
+
+        # Dump encoder hidden state, to file
+        if args.save_hidden_interval > 0 and i % args.save_hidden_interval == 0 and i > 0:
+            hid_filename = os.path.join(os.path.splitext(args.save)[0], 'hidden_state_%d.npy'%(i))
+            print('saving %s hidden state: %s' % (encoder_hidden_aggregator.shape, hid_filename))
+            np.save(hid_filename, encoder_hidden_aggregator)
 
         # NOTE: Make sure these values are legal -- Var or return None if not specified
         #if i % 500 == 0:
