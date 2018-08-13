@@ -448,7 +448,7 @@ def train(total_iters=0):
 
         # Save encoder hidden state -- for dumping later
         if args.save_hidden_interval > 0:
-            encoder_hidden_aggregator[i%args.save_hidden_interval] = encoder_hidden[0][0].detach().numpy()
+            encoder_hidden_aggregator[i%args.save_hidden_interval] = encoder_hidden[0][0].detach().cpu().numpy()
 
         # Dump encoder hidden state, to file
         if args.save_hidden_interval > 0 and i % args.save_hidden_interval == 0 and i > 0:
