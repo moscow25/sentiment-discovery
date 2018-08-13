@@ -135,7 +135,7 @@ class RNNAutoEncoderModel(nn.Module):
         # CNN network, upon request
         # Makes sense to run CNN over the sequence, and take max pool -- look or discrepancies in character outputs?
         self.conv_layers = []
-        if True:
+        if self.disc_hidden_cnn_layers:
             for layer_id in range(self.disc_hidden_cnn_layers):
                 in_channels = self.disc_hidden_reduce_dim_size if layer_id == 0 else self.disc_hidden_cnn_nfilter
                 out_channels = self.disc_hidden_cnn_nfilter
