@@ -41,11 +41,11 @@ class RNNAutoEncoderModel(nn.Module):
                 attention=False, init_transform_id=False,
                 use_latent_hidden=True, transform_latent_hidden=True, latent_tanh=False,
                 use_cell_hidden=False, transform_cell_hidden=False, decoder_highway_hidden=True,
-                discriminator_encoder_hidden=True, disc_enc_nhid=1024, disc_enc_layers=2, disconnect_disc_enc_grad=True,
-                discriminator_decoder_hidden=True, disc_dec_nhid=1024, disc_dec_layers=2, disconnect_disc_dec_grad=True,
+                discriminator_encoder_hidden=False, disc_enc_nhid=1024, disc_enc_layers=2, disconnect_disc_enc_grad=True,
+                discriminator_decoder_hidden=False, disc_dec_nhid=1024, disc_dec_layers=2, disconnect_disc_dec_grad=True,
                 combined_disc_nhid=1024, combined_disc_layers=1, disc_collect_hiddens=True,
-                disc_hidden_ave_pos_factor=1.0, disc_hidden_unroll=True, disc_hidden_reduce_dim_size=256,
-                disc_hidden_cnn_layers=2, disc_hidden_cnn_nfilter=128, disc_hidden_cnn_filter_size=3, disc_hidden_cnn_max_pool=True):
+                disc_hidden_ave_pos_factor=1.0, disc_hidden_unroll=False, disc_hidden_reduce_dim_size=256,
+                disc_hidden_cnn_layers=0, disc_hidden_cnn_nfilter=128, disc_hidden_cnn_filter_size=3, disc_hidden_cnn_max_pool=True):
         super(RNNAutoEncoderModel, self).__init__()
         self.freeze = freeze
         self.freeze_decoder = freeze_decoder
@@ -261,7 +261,7 @@ class RNNAutoEncoderModel(nn.Module):
             #print('-------\nChanging cells: %s' % self.emotion_neurons)
             for n in self.emotion_neurons:
                 hval = self.emotion_hidden_state[n]
-                cval = self.emotion_cell_state[n]
+                #cval = self.emotion_cell_state[n]
                 if self.hidden_boost_factor != 0.0:
                     v = hval
                     if self.average_cell_value:
@@ -365,7 +365,7 @@ class RNNAutoEncoderModel(nn.Module):
         else:
             # If we cat results -- kind of crazy
             cat_hiddens = torch.cat(compressed_hiddens, dim=0).squeeze()
-            print(cat_hiddens)
+            #print(cat_hiddens)
 
 
         # If we want to also predict real/fake from the decoder (final) hidden state, apply that here.

@@ -270,6 +270,81 @@ mask = args.overwrite is not None
 
 model.eval()
 
+
+# Hack -- upon request, dump
+sample_texts = [" raised by his miserable aunt and uncle who are terrified Harry Potter will learn that he's really a wizard, just as his parents were ",
+" Love love love me some bananas! I try to eat 1-2 every day for good health. These bananas were very ripe and sweet. Perfect!",
+" I am sorry I wasted my hard earned money on it. The mattress was OK for about the first year. I wake up with a lot of back pain",
+" My husband still wakes up with back pain. I have noticed no real difference in my sleep patterns on this bed. I was disappointed.",
+"Very comfortable. My wife and I have been getting great sleep since day 1. Don't listen to the cry baby reviews. This mattress is great.",
+"When I have to build a hotel, we're bombing the hell out of them. Lots of money. To those suffering, I say vote for Donald. Media hurting and left behind, I say: it looked like a million people. It's imploding as we sit with my steak.",
+"Dimas 1/2 step late! Hella effort though, hella determination to even Get back on the track! Go USA! Got past the True Hardness! That BEAM's a BEEYOTCH! Les' get ta TUMBLIN'! Go USA!",
+"I discovered Philip Roth, strangely enough, through a young woman who insisted that all of her friends join her in despising him. I never got to the bottom of that situation, and now I think I never will",
+" They don't like bananas. They don't like plums. They don't like apricots. They love apples. Their favorite fruit is an apple. It is best for them. ",
+" She doesn't like bananas. She doesn't like plums. She doesn't like apricots. She loves apples. Her favorite fruits are apples. That is best for her. ",
+" He doesn't like bananas. He doesn't like plums. He doesn't like apricots. He loves apples. His favorite fruits are apples. That is best for him. ",
+"Having a lil' weather outchere. Time to try that old school rain on the roof sleep inducer, got a lil' boat rock to go with that. I'm byacht to get it... Prolly pretty dope to be a kid in sailing camp. Been seeing a few lil' sailors in the mornings while I attend Chill Camp.",
+"I told Ohio my promise to the American voter: If I am elected President, I will grow your money. $500 billion a year to be a Republican. The education is a disaster. Jobs are essentially nonexistent. What do you have to lose?",
+"Uh Oh, lookin' like they turned the stove on & Home Cookin' is all they servin'! Bron almost had that First Down! Why would you fall for a Deron Williams shot fake?! Total Bullshit! Did that Muthafukka say No Way?! First Down James!"]
+
+if False:
+    model_name = 'len64'
+    embeddings = np.empty((len(sample_texts), 4096), dtype='float32')
+    txt_filename = model_name + '_texts'
+    hid_filename = model_name + '_hiddens'
+    model.decoder.teacher_force = False
+    #print(embeddings)
+    print('Storing embeddings for sentences of size %s' % str(embeddings.shape))
+    for i, txt in enumerate(sample_texts):
+        input_text = ' ' + txt.strip() + ' '
+        print('\n-----\n%s' % input_text)
+        hidden = model.encoder.rnn.init_hidden(1)
+        input = Variable(torch.from_numpy(np.array([int(ord(c)) for c in input_text]))).cuda().long()
+        input = input.view(-1, 1).contiguous()
+        unforced_output = model(input, temperature=args.temperature, beam=beam)
+        #print(unforced_output)
+        final_hidden = unforced_output[2][0].squeeze().data.cpu().numpy()
+        print(final_hidden)
+        unforced_output = get_unforced_output(unforced_output)
+        embeddings[i] = final_hidden
+        print((''.join(unforced_output)).replace('\n', ' '))
+
+    # Save results to special file.
+    print('Saving texts and hiddens to %s, %s' % (txt_filename, hid_filename))
+    np.save(hid_filename, embeddings)
+    np.save(txt_filename, np.array(sample_texts))
+
+
+# HACK: Decode embeddings (artificially generated via GLOW, etc) into sentences.
+generated_embeddings_filename = '/home/nyakovenko/sentiment-discovery/text_to_speech/project_average_outputs_len128.npy'
+generated_embeddings_filename = '/home/nyakovenko/sentiment-discovery/text_to_speech/len128_hiddens.npy'
+if True:
+    model.decoder.teacher_force = False
+    hidden = model.encoder.rnn.init_hidden(1)
+    generated_embeddings = np.load(generated_embeddings_filename)
+    model.emotion_neurons = [n for n in range(args.nhid)]
+    for (i, emb) in enumerate(generated_embeddings):
+        fit_hidden = Variable(torch.from_numpy(emb))
+        #print(fit_hidden)
+        # Try the learned hidden state?
+        model.emotion_hidden_state = fit_hidden
+        # How much do we boost?
+        model.hidden_boost_factor = 1.0
+        model.average_cell_value = True
+
+        input_text = ' ' + args.text + ' '
+        print('\n-----\n%s' % i)
+        input = Variable(torch.from_numpy(np.array([int(ord(c)) for c in input_text]))).cuda().long()
+        input = input.view(-1, 1).contiguous()
+        model.encoder.rnn.reset_hidden(1)
+        unforced_output = model(input, temperature=args.temperature, beam=beam)
+        unforced_output = get_unforced_output(unforced_output)
+        print('unforced generated from hidden:')
+        print((''.join(unforced_output)))
+
+    # Turn off hidden state changing
+    model.emotion_neurons = []
+
 # Run through text -- no emotion transfer
 print('Text autoencoder -- no emotion xfer')
 
@@ -281,6 +356,10 @@ input = input.view(-1, 1).contiguous()
 unforced_output = model(input, temperature=args.temperature, beam=beam)
 unforced_output = get_unforced_output(unforced_output)
 
+# What happens if we run it twice? Naive hidden state warmup...
+#unforced_output = model(input, temperature=args.temperature, beam=beam)
+#unforced_output = get_unforced_output(unforced_output)
+
 model.decoder.teacher_force = True
 model.encoder.rnn.reset_hidden(1)
 forced_output = model(input, temperature=args.temperature)
@@ -289,9 +368,10 @@ content_hidden_state = forced_output[2][0].squeeze().data#.cpu().numpy()
 forced_output = list(forced_output[-1].squeeze().cpu().numpy())
 forced_output = [chr(int(x)) for x in forced_output]
 
-print('-----forced output-----')
-print((''.join(forced_output)).replace('\n', ' '))
-print('-----unforced output-----')
+# Remove Forced Output -- it's not very interesting. 
+#print('-----forced output-----')
+#print((''.join(forced_output)).replace('\n', ' '))
+print('\n-----unforced output-----')
 print((''.join(unforced_output)).replace('\n', ' '))
 
 if not args.emotion_text:
@@ -306,9 +386,13 @@ model.decoder.teacher_force = False
 model.encoder.rnn.reset_hidden(1)
 unforced_emotion_output = model(input_emotion, temperature=args.temperature, beam=beam)
 unforced_emotion_output = get_unforced_output(unforced_emotion_output)
+
+# What happens if we run it twice? Naive hidden state warmup...
+#unforced_emotion_output = model(input_emotion, temperature=args.temperature, beam=beam)
+#unforced_emotion_output = get_unforced_output(unforced_emotion_output)
+
 model.decoder.teacher_force = True
 model.encoder.rnn.reset_hidden(1)
-
 
 # If we want to get the Gram over several steps of the emo text?
 emo_steps = min(len(input_emotion_text)-10, 50) 
@@ -319,7 +403,8 @@ for s in range(emo_steps):
     # Skip all states in the middle of words
     if not(d == 0 or input_emotion_text[-d] == ' ') or len(part_emo_text) == 0:
         continue
-    print(part_emo_text)
+    # Un-comment if we want full text
+    #print(part_emo_text)
     part_emo_input = Variable(torch.from_numpy(np.array([int(ord(c)) for c in part_emo_text]))).cuda().long()
     part_emo_input = part_emo_input.view(-1, 1).contiguous()
     part_output = model(part_emo_input, temperature=args.temperature)
@@ -342,9 +427,9 @@ emotion_cell_state = forced_emotion_output[2][1].squeeze().data#.cpu().numpy()
 forced_emotion_output = list(forced_emotion_output[-1].squeeze().cpu().numpy())
 forced_emotion_output = [chr(int(x)) for x in forced_emotion_output]
 
-print('\n-----forced emotion output-----')
-print((''.join(forced_emotion_output)).replace('\n', ' '))
-print('-----unforced emotion output-----')
+#print('\n-----forced emotion output-----')
+#print((''.join(forced_emotion_output)).replace('\n', ' '))
+print('\n-----unforced emotion output-----')
 print((''.join(unforced_emotion_output)).replace('\n', ' '))
 
 #print('Emotion hidden state %d' % len(emotion_hidden_state))
@@ -408,14 +493,14 @@ model.decoder.teacher_force = False
 model.encoder.rnn.reset_hidden(1)
 unforced_output = model(input, temperature=args.temperature, beam=beam)
 unforced_output = get_unforced_output(unforced_output)
-model.decoder.teacher_force = True
-model.encoder.rnn.reset_hidden(1)
-forced_output = model(input, temperature=args.temperature)
-forced_output = list(forced_output[-1].squeeze().cpu().numpy())
-forced_output = [chr(int(x)) for x in forced_output]
-print('-----forced output-----')
-print((''.join(forced_output)).replace('\n', ' '))
-print('-----unforced output-----')
+#model.decoder.teacher_force = True
+#model.encoder.rnn.reset_hidden(1)
+#forced_output = model(input, temperature=args.temperature)
+#forced_output = list(forced_output[-1].squeeze().cpu().numpy())
+#forced_output = [chr(int(x)) for x in forced_output]
+#print('-----forced output-----')
+#print((''.join(forced_output)).replace('\n', ' '))
+print('\n-----unforced output-----')
 print((''.join(unforced_output)).replace('\n', ' '))
 
 # Need SGD approach to style loss.
@@ -514,9 +599,9 @@ model.encoder.rnn.reset_hidden(1)
 forced_output = model(input, temperature=args.temperature)
 forced_output = list(forced_output[-1].squeeze().cpu().numpy())
 forced_output = [chr(int(x)) for x in forced_output]
-print('-----forced output-----')
-print((''.join(forced_output)).replace('\n', ' '))
-print('-----unforced output-----')
+#print('-----forced output-----')
+#print((''.join(forced_output)).replace('\n', ' '))
+print('\n-----unforced output-----')
 print((''.join(unforced_output)).replace('\n', ' '))
 
 
